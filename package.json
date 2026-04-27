@@ -1,0 +1,29 @@
+{
+  "name": "project-beta",
+  "private": true,
+  "version": "0.0.1",
+  "description": "Multi-tenant tender/RFP matching SaaS for IT companies — LLM-powered fit scoring, gap analysis, scheduled digests.",
+  "scripts": {
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck",
+    "dev:web": "pnpm --filter web dev",
+    "worker:ingest": "pnpm --filter worker run ingest",
+    "worker:match": "pnpm --filter worker run match",
+    "worker:digest": "pnpm --filter worker run digest",
+    "db:generate": "prisma generate --schema=prisma/schema.prisma",
+    "db:migrate": "prisma migrate dev --schema=prisma/schema.prisma",
+    "db:push": "prisma db push --schema=prisma/schema.prisma"
+  },
+  "devDependencies": {
+    "@types/node": "^22.7.5",
+    "prisma": "^5.20.0",
+    "typescript": "^5.6.3"
+  },
+  "packageManager": "pnpm@9.12.0",
+  "engines": {
+    "node": ">=20.10.0"
+  },
+  "dependencies": {
+    "@prisma/client": "^5.20.0"
+  }
+}

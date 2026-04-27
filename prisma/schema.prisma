@@ -1,0 +1,176 @@
+// Project Beta — DB contract. Owned by Lead. Backend agent extends only with sign-off.
+//
+// pgvector required: `CREATE EXTENSION IF NOT EXISTS vector;`
+// Embedding dim = 1024 to match voyage-3-large.
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+datasource db {
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  extensions = [pgvector(map: "vector")]
+}
+
+// ---------- Tenancy ----------
+
+model Tenant {
+  id          String   @id @default(cuid())
+  slug        String   @unique
+  companyName String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  users    User[]
+  profile  CapabilityProfile?
+  matches  MatchResult[]
+  schedule DigestSchedule?
+  feedback MatchFeedback[]
+}
+
+model User {
+  id        String   @id @default(cuid())
+  tenantId  String
+  email     String   @unique
+  name      String?
+  createdAt DateTime @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+}
+
+// ---------- Capability profile ----------
+
+model CapabilityProfile {
+  id              String   @id @default(cuid())
+  tenantId        String   @unique
+  oneLiner        String
+  industries      String[] @default([])
+  techStack       String[] @default([])
+  services        String[] @default([])
+  certifications  String[] @default([])
+  pastClients     String[] @default([])
+  pastProjects    Json     @default("[]")
+  geographies     String[] @default([])
+  teamSize        Int      @default(0)
+  budgetMinUsd    Int      @default(0)
+  budgetMaxUsd    Int      @default(0)
+  languages       String[] @default([])
+  embeddingStatus EmbeddingStatus @default(pending)
+  // Embedding column added via raw SQL migration: ALTER TABLE "CapabilityProfile" ADD COLUMN embedding vector(1024);
+  updatedAt       DateTime @updatedAt
+  createdAt       DateTime @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+}
+
+enum EmbeddingStatus {
+  pending
+  ready
+  failed
+}
+
+// ---------- Tenders (shared across tenants) ----------
+
+enum TenderSource {
+  sam_gov
+  ted_eu
+  ungm
+  world_bank
+  ppra_pk
+}
+
+model Tender {
+  id           String       @id @default(cuid())
+  source       TenderSource
+  externalId   String
+  title        String
+  description  String
+  url          String
+  buyer        String
+  country      String?
+  sector       String?
+  cpvCodes     String[]     @default([])
+  budgetMinUsd Int?
+  budgetMaxUsd Int?
+  currency     String?
+  publishedAt  DateTime
+  deadlineAt   DateTime?
+  language     String       @default("en")
+  raw          Json
+  // Embedding column added via raw SQL migration: ALTER TABLE "Tender" ADD COLUMN embedding vector(1024);
+  embeddingStatus EmbeddingStatus @default(pending)
+  ingestedAt   DateTime     @default(now())
+
+  matches MatchResult[]
+
+  @@unique([source, externalId])
+  @@index([publishedAt])
+  @@index([deadlineAt])
+}
+
+// ---------- Match results ----------
+
+enum WinProbability {
+  low
+  medium
+  high
+}
+
+model MatchResult {
+  id                   String         @id @default(cuid())
+  tenantId             String
+  tenderId             String
+  fitScore             Int            // 0..100
+  rationale            String[]       // exactly 3 bullets
+  gaps                 Json           @default("[]")
+  winProbability       WinProbability
+  winProbabilityReason String
+  capabilityStatement  String?        // generated on-demand
+  modelVersion         String
+  createdAt            DateTime       @default(now())
+
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tender   Tender @relation(fields: [tenderId], references: [id], onDelete: Cascade)
+  feedback MatchFeedback?
+
+  @@unique([tenantId, tenderId])
+  @@index([tenantId, fitScore])
+}
+
+model MatchFeedback {
+  id         String   @id @default(cuid())
+  matchId    String   @unique
+  tenantId   String
+  interested Boolean
+  note       String?
+  createdAt  DateTime @default(now())
+
+  match  MatchResult @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  tenant Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+}
+
+// ---------- Digest schedule ----------
+
+enum DigestFrequency {
+  daily
+  weekly
+}
+
+model DigestSchedule {
+  id            String          @id @default(cuid())
+  tenantId      String          @unique
+  frequency     DigestFrequency @default(weekly)
+  hourLocal     Int             @default(8)   // 0..23
+  dayOfWeek     Int?            // 0=Sun..6=Sat (weekly only)
+  timezone      String          @default("UTC")
+  enabled       Boolean         @default(true)
+  lastSentAt    DateTime?
+  minFitScore   Int             @default(60)
+  updatedAt     DateTime        @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+}

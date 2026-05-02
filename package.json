@@ -12,7 +12,9 @@
     "worker:digest": "pnpm --filter worker run digest",
     "db:generate": "prisma generate --schema=prisma/schema.prisma",
     "db:migrate": "prisma migrate dev --schema=prisma/schema.prisma",
-    "db:push": "prisma db push --schema=prisma/schema.prisma"
+    "db:push": "prisma db push --schema=prisma/schema.prisma",
+    "db:vector-sql": "node packages/db/scripts/generate-pgvector-sql.mjs",
+    "llm:doctor": "pnpm --filter @beta/llm llm-doctor"
   },
   "devDependencies": {
     "@types/node": "^22.7.5",

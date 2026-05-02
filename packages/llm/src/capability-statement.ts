@@ -2,9 +2,8 @@ import {
   type CapabilityProfile,
   type MatchResult,
   type NormalizedTender,
-  MODEL_REASONING,
 } from "@beta/shared";
-import { getAnthropicClient } from "./clients";
+import { getChatProvider } from "./providers";
 import { renderProfileForLLM, renderTenderForLLM } from "./util/render";
 
 const MAX_TOKENS = 1500;
@@ -31,7 +30,7 @@ export async function generateCapabilityStatement(
   tender: NormalizedTender,
   matchResult: Omit<MatchResult, "tenderId" | "tenantId">,
 ): Promise<string> {
-  const client = getAnthropicClient();
+  const provider = getChatProvider();
 
   const userContent = [
     renderProfileForLLM(profile),
@@ -55,23 +54,16 @@ export async function generateCapabilityStatement(
     `Now write the capability statement following the section structure in the system prompt.`,
   ].join("\n");
 
-  const response = await client.messages.create({
-    model: MODEL_REASONING,
-    max_tokens: MAX_TOKENS,
+  const text = await provider.chatText({
     system: SYSTEM_PROMPT,
-    messages: [{ role: "user", content: userContent }],
+    user: userContent,
+    tier: "reasoning",
+    maxTokens: MAX_TOKENS,
+    temperature: 0.3,
   });
 
-  const text = response.content
-    .filter((b: { type: string }) => b.type === "text")
-    .map((b: { type: string; text?: string }) => b.text ?? "")
-    .join("")
-    .trim();
-
-  if (!text) {
-    throw new Error(
-      "generateCapabilityStatement: model returned no text content",
-    );
+  if (!text.trim()) {
+    throw new Error("generateCapabilityStatement: model returned no text content");
   }
-  return text;
+  return text.trim();
 }

@@ -5,9 +5,10 @@ import {
   type MatchResult,
   type NormalizedTender,
   MATCH_RATIONALE_BULLET_COUNT,
-  MODEL_REASONING,
 } from "@beta/shared";
-import { getAnthropicClient } from "./clients";
+import { getChatProvider } from "./providers";
+import type { JsonSchema } from "./providers/types";
+import { readChatConfig } from "./providers/config";
 import { renderProfileForLLM, renderTenderForLLM } from "./util/render";
 import {
   estimateWinProbability,
@@ -44,86 +45,77 @@ Hard rules:
 - Severity meanings: "blocker" = cannot bid without it (mandatory cert/clearance/local presence), "major" = significant disadvantage vs typical winner, "minor" = nice-to-have.
 - Rationale is exactly 3 bullets. Each bullet is one specific, grounded reason — no fluff, no marketing tone.
 - fitScore is an integer 0-100. The cosine similarity (0..1) is one input. You may override it up or down if the rationale and gaps demand a different score. A tender with blockers should rarely score above 40 even if similarity is high.
-- Respond ONLY by calling the submit_match_assessment tool. Do not produce any free-form text.`;
+- Return ONLY the structured object. No prose outside the structured fields.`;
 
-const TOOL_DEFINITION = {
-  name: "submit_match_assessment",
-  description:
-    "Submit the structured match assessment. Must be called exactly once.",
-  input_schema: {
-    type: "object",
-    properties: {
-      rationale: {
-        type: "array",
-        description: `Exactly ${MATCH_RATIONALE_BULLET_COUNT} short bullets explaining the fit (or lack of fit). Each bullet grounded in tender + profile.`,
-        items: { type: "string", minLength: 1 },
-        minItems: MATCH_RATIONALE_BULLET_COUNT,
-        maxItems: MATCH_RATIONALE_BULLET_COUNT,
-      },
-      gaps: {
-        type: "array",
-        description:
-          "Capability gaps. Concrete tender requirements the company does not yet meet.",
-        items: {
-          type: "object",
-          properties: {
-            requirement: {
-              type: "string",
-              description:
-                "Specific requirement from the tender that is missing or weak.",
-              minLength: 1,
-            },
-            severity: {
-              type: "string",
-              enum: ["blocker", "major", "minor"],
-            },
+const SCHEMA: JsonSchema = {
+  type: "object",
+  properties: {
+    rationale: {
+      type: "array",
+      description: `Exactly ${MATCH_RATIONALE_BULLET_COUNT} short bullets explaining the fit (or lack of fit). Each bullet grounded in tender + profile.`,
+      items: { type: "string", minLength: 1 },
+      minItems: MATCH_RATIONALE_BULLET_COUNT,
+      maxItems: MATCH_RATIONALE_BULLET_COUNT,
+    },
+    gaps: {
+      type: "array",
+      description:
+        "Capability gaps. Concrete tender requirements the company does not yet meet.",
+      items: {
+        type: "object",
+        properties: {
+          requirement: {
+            type: "string",
+            description:
+              "Specific requirement from the tender that is missing or weak.",
+            minLength: 1,
           },
-          required: ["requirement", "severity"],
+          severity: { type: "string", enum: ["blocker", "major", "minor"] },
         },
-      },
-      winProbability: {
-        type: "string",
-        enum: ["low", "medium", "high"],
-        description:
-          "Final win-probability call. The deterministic heuristic estimate is provided as context; you may agree or override.",
-      },
-      winProbabilityReason: {
-        type: "string",
-        description:
-          "One short sentence justifying the winProbability value, citing the strongest factor.",
-        minLength: 1,
-      },
-      fitScore: {
-        type: "integer",
-        description:
-          "Overall fit score 0-100. Integer. Be honest — blockers should pull this well below the cosine hint.",
-        minimum: 0,
-        maximum: 100,
+        required: ["requirement", "severity"],
+        additionalProperties: false,
       },
     },
-    required: [
-      "rationale",
-      "gaps",
-      "winProbability",
-      "winProbabilityReason",
-      "fitScore",
-    ],
+    winProbability: {
+      type: "string",
+      enum: ["low", "medium", "high"],
+      description:
+        "Final win-probability call. The deterministic heuristic estimate is provided as context; you may agree or override.",
+    },
+    winProbabilityReason: {
+      type: "string",
+      description:
+        "One short sentence justifying the winProbability value, citing the strongest factor.",
+      minLength: 1,
+    },
+    fitScore: {
+      type: "integer",
+      description:
+        "Overall fit score 0-100. Integer. Be honest — blockers should pull this well below the cosine hint.",
+      minimum: 0,
+      maximum: 100,
+    },
   },
-} as const;
+  required: [
+    "rationale",
+    "gaps",
+    "winProbability",
+    "winProbabilityReason",
+    "fitScore",
+  ],
+  additionalProperties: false,
+};
 
-const PROMPT_TEMPLATE_VERSION = "v1";
+const PROMPT_TEMPLATE_VERSION = "v2";
 const PROMPT_HASH = createHash("sha256")
-  .update(
-    [
-      PROMPT_TEMPLATE_VERSION,
-      SYSTEM_PROMPT,
-      JSON.stringify(TOOL_DEFINITION),
-    ].join("|"),
-  )
+  .update([PROMPT_TEMPLATE_VERSION, SYSTEM_PROMPT, JSON.stringify(SCHEMA)].join("|"))
   .digest("hex")
   .slice(0, 8);
 
-const MODEL_VERSION = `${MODEL_REASONING}+${PROMPT_HASH}`;
+function modelVersion(): string {
+  const cfg = readChatConfig();
+  return `${cfg.provider}:${cfg.reasoningModel}+${PROMPT_HASH}`;
+}
 
 export interface ScoreMatchOptions {
   similarHistoricalWins?: SimilarHistoricalWin[];
@@ -143,56 +135,32 @@ export async function scoreMatch(
   );
 
   const userContent = buildUserContent(profile, tender, clamped, heuristic);
-  const client = getAnthropicClient();
+  const provider = getChatProvider();
 
-  let lastError: string | null = null;
-  for (let attempt = 0; attempt < 2; attempt++) {
-    const messages: Array<{ role: "user" | "assistant"; content: string }> = [
-      { role: "user", content: userContent },
-    ];
-    if (attempt > 0 && lastError) {
-      messages.push({
-        role: "user",
-        content: `Your previous response was invalid because: ${lastError}\n\nReturn the assessment again by calling submit_match_assessment with valid arguments.`,
-      });
-    }
+  const data = await provider.chatStructured<ToolInput>({
+    system: SYSTEM_PROMPT,
+    user: userContent,
+    schemaName: "submit_match_assessment",
+    schemaDescription:
+      "Submit the structured match assessment. Must be returned exactly once.",
+    schema: SCHEMA,
+    tier: "reasoning",
+    maxTokens: MAX_TOKENS,
+    temperature: 0,
+    validate: (raw) => {
+      const parsed = ToolInputSchema.safeParse(raw);
+      if (!parsed.success) {
+        throw new Error(
+          parsed.error.issues
+            .map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`)
+            .join("; "),
+        );
+      }
+      return parsed.data;
+    },
+  });
 
-    const response = await client.messages.create({
-      model: MODEL_REASONING,
-      max_tokens: MAX_TOKENS,
-      system: SYSTEM_PROMPT,
-      tools: [TOOL_DEFINITION],
-      tool_choice: { type: "tool", name: TOOL_DEFINITION.name },
-      messages,
-    });
-
-    const toolUse = response.content.find(
-      (b: { type: string }) => b.type === "tool_use",
-    ) as { type: "tool_use"; name: string; input: unknown } | undefined;
-
-    if (!toolUse) {
-      lastError = "no tool_use block was returned";
-      continue;
-    }
-    if (toolUse.name !== TOOL_DEFINITION.name) {
-      lastError = `unexpected tool name: ${toolUse.name}`;
-      continue;
-    }
-
-    const parsed = ToolInputSchema.safeParse(toolUse.input);
-    if (!parsed.success) {
-      lastError = parsed.error.issues
-        .map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`)
-        .join("; ");
-      continue;
-    }
-
-    return toMatchResult(parsed.data);
-  }
-
-  throw new Error(
-    `scoreMatch: model failed to return valid tool input after 2 attempts (last error: ${lastError ?? "unknown"})`,
-  );
+  return toMatchResult(data);
 }
 
 function buildUserContent(
@@ -213,7 +181,7 @@ function buildUserContent(
     `${heuristic.winProbability.toUpperCase()} — ${heuristic.reason}`,
     `You may agree, raise, or lower this in your final winProbability. Be explicit in winProbabilityReason.`,
     "",
-    `Now call submit_match_assessment with your honest assessment.`,
+    `Now submit your honest assessment as a single JSON object matching the schema.`,
   ].join("\n");
 }
 
@@ -226,12 +194,12 @@ function toMatchResult(
     gaps: data.gaps,
     winProbability: data.winProbability,
     winProbabilityReason: data.winProbabilityReason,
-    modelVersion: MODEL_VERSION,
+    modelVersion: modelVersion(),
   };
 }
 
 export const __test__ = {
   ToolInputSchema,
   PROMPT_HASH,
-  MODEL_VERSION,
+  SCHEMA,
 };

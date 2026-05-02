@@ -2,22 +2,83 @@
 
 Pure TS library. No DB writes. The Scheduler composes these with Prisma.
 
+## Provider abstraction (new)
+
+The matcher and capability-statement generator never touch a vendor SDK
+directly. They go through `getChatProvider()` / `getEmbeddingProvider()` from
+`./providers`, which dispatch on `LLM_PROVIDER` and `EMBEDDING_PROVIDER` env
+vars. Supported backends:
+
+| Backend | Chat | Embed | Notes |
+|---|---|---|---|
+| `ollama`     | ✓ | ✓ | Local. Schema-constrained decoding via `format: <json schema>`. |
+| `lmstudio`   | ✓ | ✓ | Local. OpenAI-compatible. `response_format: json_schema`. |
+| `openai`     | ✓ | ✓ | Cloud. Same OpenAI-compat client as LM Studio. |
+| `anthropic`  | ✓ | — | Cloud. Forced tool-use for structured output. SDK lazy-loaded. |
+| `voyage`     | — | ✓ | Cloud embeddings. |
+
+Switching providers is a pure env change — no rebuild, no code change. The
+modelVersion stamp on every MatchResult includes provider+model so historical
+rows are traceable across migrations.
+
+## Structured output across backends
+
+| Backend | Mechanism |
+|---|---|
+| Ollama   | `format: <jsonSchema>` constrains decoding during sampling. |
+| OpenAI / LM Studio | `response_format: { type: "json_schema", strict: true }`. |
+| Anthropic | Single tool with `input_schema = jsonSchema`, `tool_choice: { type: "tool" }`. |
+
+`ChatProvider.chatStructured` accepts a JSON schema once and the right
+mechanism is picked per backend. A zod refinement runs after the model's
+output and a single retry attempt is allowed (Anthropic implements the
+retry; Ollama's constrained decoding makes retries unnecessary).
+
 ## Public functions (exported from `src/index.ts`)
 
-- `voyageEmbed(texts)` — raw fetch to Voyage `/v1/embeddings`, returns `number[][]` of `EMBEDDING_DIM`. No caching.
-- `getAnthropicClient()` — singleton `Anthropic` client; reads `ANTHROPIC_API_KEY`.
-- `embedCapabilityProfile(profile)` / `embedTender(tender)` — flatten input to a structured natural-language string and embed. Tender description truncated to ~6000 chars.
+- `getChatProvider() / getEmbeddingProvider()` — preferred entry points.
+- `voyageEmbed(texts)` / `getAnthropicClient()` — deprecated shims, route
+  through the abstraction. Kept for back-compat.
+- `embedCapabilityProfile(profile)` / `embedTender(tender)` — flatten →
+  cache lookup → `provider.embed(...)`. Tender description truncated to
+  ~6000 chars.
 - `cosineSimilarity(a, b)` — standard cosine; throws on length mismatch.
-- `estimateWinProbability(profile, tender, similarHistoricalWins?)` — deterministic heuristic combining geography overlap, budget-band fit, team-size capacity (team<5 + tender>$1M penalty), sector overlap, and prior wins. Returns `{ winProbability, reason }`.
-- `scoreMatch(profile, tender, similarity, opts?)` — runs `estimateWinProbability`, then calls `claude-opus-4-7` with **forced tool-use** (`submit_match_assessment`). Validates output with zod, retries once on failure, throws after two. Returns `Omit<MatchResult, 'tenderId'|'tenantId'>`. `modelVersion` = `claude-opus-4-7+<sha256[0..8] of system prompt + tool def>`.
-- `generateCapabilityStatement(profile, tender, matchResult)` — plain-text Markdown output, ~300-500 words, fixed section order. No tool-use.
-- `renderProfileForLLM` / `renderTenderForLLM` — shared rendering used by both LLM functions.
+- `estimateWinProbability(profile, tender, similarHistoricalWins?)` —
+  unchanged deterministic heuristic.
+- `scoreMatch(profile, tender, similarity, opts?)` — runs heuristic, then
+  `provider.chatStructured(...)`. Validates with zod. `modelVersion` =
+  `<provider>:<model>+<sha256[0..8] of system prompt + schema>`.
+- `generateCapabilityStatement(profile, tender, matchResult)` — plain-text
+  Markdown, ~300-500 words, fixed five-section structure.
+- `embeddingCache` — process-local LRU keyed by sha256(model:text). Cuts
+  re-embed cost on repeated cron ticks; benefits cloud embedders too.
+- `renderProfileForLLM` / `renderTenderForLLM` — shared rendering used by
+  both LLM functions.
 
-## Prompt strategy
+## Diagnostics
 
-Match scoring uses a terse system prompt that explicitly forbids invented capabilities and requires gaps to be listed even when cosine similarity is high; the cosine value and the deterministic heuristic estimate are passed as context but the model is told it may override either. Structured output is enforced via `tool_choice: { type: "tool", name: "submit_match_assessment" }` with an `input_schema` mirrored by a zod parse on return. Capability-statement generation uses a separate plain-text prompt with a fixed five-section structure and a hard ban on inventing certifications, clients, or experience not in the profile.
+`pnpm llm:doctor` (alias for `tsx src/doctor.ts`) verifies:
+1. The configured chat provider is reachable and required models are loaded.
+2. The configured embedding provider is reachable and the model is loaded.
+3. A live embed of a probe string returns a vector of `EMBEDDING_DIM`.
+4. A structured-output round trip works (sentiment classify probe).
+
+Each failure prints the exact remediation command (`ollama pull <model>`,
+"set OPENAI_API_KEY", etc).
+
+## Embedding dim
+
+`EMBEDDING_DIM` (default 1024) is read at runtime from env in
+`@beta/shared/constants` and re-exported by `@beta/db/embedding`. The
+pgvector migration is templated — run `pnpm db:vector-sql` to regenerate
+`packages/db/src/migrations/001_pgvector.sql` for the active dim, then
+re-apply via psql. Mismatches between the model's native dim and
+EMBEDDING_DIM are caught early by the doctor with a copy/paste fix.
 
 ## TODOs
 
-- `TODO(lead):` confirm `claude-opus-4-7` accepts forced tool-use as written; if 4.7 changes structured-output ergonomics later, this is the one place to update.
-- `TODO(lead):` Scheduler should pass `similarHistoricalWins` from prior `MatchFeedback` joined with `Tender` so win-prob heuristic improves over time.
+- `TODO(lead):` Scheduler should pass `similarHistoricalWins` from prior
+  `MatchFeedback` joined with `Tender` so win-prob heuristic improves
+  over time.
+- `TODO(lead):` Persist a content hash on Tender / CapabilityProfile so
+  the embed cache can survive process restarts (currently in-memory only).

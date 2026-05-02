@@ -1,6 +1,30 @@
-export const EMBEDDING_DIM = 1024;
+/**
+ * Embedding dim. Default 1024 to match the legacy voyage-3-large pgvector
+ * column. Override with EMBEDDING_DIM (e.g. 768 for nomic-embed-text or
+ * bge-m3, 1536 for OpenAI text-embedding-3-small). Changing this requires
+ * regenerating the pgvector migration via `pnpm db:migrate-vector`.
+ */
+function readEmbeddingDim(): number {
+  const v = typeof process !== "undefined" ? process.env?.EMBEDDING_DIM : undefined;
+  if (!v) return 1024;
+  const n = Number.parseInt(v, 10);
+  return Number.isFinite(n) && n > 0 ? n : 1024;
+}
+
+export const EMBEDDING_DIM = readEmbeddingDim();
+
+/**
+ * The embedding *model name* below is informational only. The active model
+ * is whatever EMBEDDING_MODEL resolves to inside the active provider
+ * (see packages/llm/src/providers/config.ts).
+ */
 export const EMBEDDING_MODEL = "voyage-3-large";
 
+/**
+ * Legacy model identifiers, kept so existing modelVersion strings on stored
+ * MatchResult rows remain meaningful. New code reads the active model from
+ * `readChatConfig()` in packages/llm.
+ */
 export const MODEL_REASONING = "claude-opus-4-7";
 export const MODEL_FAST = "claude-haiku-4-5-20251001";
 

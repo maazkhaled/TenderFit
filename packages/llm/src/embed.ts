@@ -1,5 +1,6 @@
 import type { CapabilityProfile, NormalizedTender } from "@beta/shared";
-import { voyageEmbed } from "./clients";
+import { getEmbeddingProvider } from "./providers";
+import { embeddingCache } from "./util/embed-cache";
 
 const TENDER_DESC_MAX = 6000;
 
@@ -56,20 +57,24 @@ function flattenTender(tender: NormalizedTender): string {
   ].join("\n");
 }
 
+async function embedSingle(text: string): Promise<number[]> {
+  const provider = getEmbeddingProvider();
+  const cached = embeddingCache.get(provider.name, text);
+  if (cached) return cached;
+  const [vec] = await provider.embed([text]);
+  if (!vec) throw new Error("embed: empty response");
+  embeddingCache.set(provider.name, text, vec);
+  return vec;
+}
+
 export async function embedCapabilityProfile(
   profile: CapabilityProfile,
 ): Promise<number[]> {
-  const text = flattenProfile(profile);
-  const [vec] = await voyageEmbed([text]);
-  if (!vec) throw new Error("embedCapabilityProfile: empty response");
-  return vec;
+  return embedSingle(flattenProfile(profile));
 }
 
 export async function embedTender(
   tender: NormalizedTender,
 ): Promise<number[]> {
-  const text = flattenTender(tender);
-  const [vec] = await voyageEmbed([text]);
-  if (!vec) throw new Error("embedTender: empty response");
-  return vec;
+  return embedSingle(flattenTender(tender));
 }

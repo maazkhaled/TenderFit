@@ -1,7 +1,8 @@
 import { Prisma } from "@prisma/client";
+import { EMBEDDING_DIM as SHARED_EMBEDDING_DIM } from "@beta/shared";
 import { prisma } from "./index";
 
-export const EMBEDDING_DIM = 1024;
+export const EMBEDDING_DIM = SHARED_EMBEDDING_DIM;
 
 export type EmbeddingTable = "Tender" | "CapabilityProfile";
 

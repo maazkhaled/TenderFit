@@ -5,13 +5,17 @@ import { tedEuAdapter } from "./adapters/ted_eu";
 import { ungmAdapter } from "./adapters/ungm";
 import { worldBankAdapter } from "./adapters/world_bank";
 import { ppraPkAdapter } from "./adapters/ppra_pk";
+import { ukFindATenderAdapter } from "./adapters/uk_find_a_tender";
+import { ukContractsFinderAdapter } from "./adapters/uk_contracts_finder";
 
 export const adapters: Record<TenderSourceId, IngestAdapter> = {
-  sam_gov: samGovAdapter,
-  ted_eu: tedEuAdapter,
-  ungm: ungmAdapter,
   world_bank: worldBankAdapter,
-  ppra_pk: ppraPkAdapter,
+  uk_find_a_tender: ukFindATenderAdapter,
+  uk_contracts_finder: ukContractsFinderAdapter,
+  ppra_pk: ppraPkAdapter,        // re-enabled via polite EPMS scrape
+  ungm: ungmAdapter,             // re-enabled via polite UNGM scrape
+  sam_gov: samGovAdapter,        // requires free SAM_GOV_API_KEY
+  ted_eu: tedEuAdapter,          // disabled — API v3 fields rework needed
 };
 
 export { runAdapter } from "./run";

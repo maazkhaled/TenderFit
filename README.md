@@ -35,17 +35,31 @@ project-beta/
     └── notifications/             ← Digest builder + renderer + sender
 ```
 
-## Data sources (MVP — all official, license-friendly)
+## Data sources (all official, license-friendly, no HTML scraping)
+
+**Active by default — no API key required:**
+
+| Source | Coverage | Endpoint | Status |
+|---|---|---|---|
+| World Bank | Multilateral | `search.worldbank.org` JSON | ✅ live |
+| UK Find a Tender | Above-threshold UK procurement | OCDS JSON (`find-tender.service.gov.uk/api/1.0`) | ✅ live |
+| UK Contracts Finder | Below-threshold + SME-friendly UK contracts | OCDS JSON (`contractsfinder.service.gov.uk/.../OCDS`) | ✅ live |
+
+**Optional — needs free API key registration:**
 
 | Source | Coverage | Auth |
 |---|---|---|
-| SAM.gov | US Federal | `SAM_GOV_API_KEY` |
-| TED EU | EU procurement | `TED_EU_API_KEY` (or anon for some endpoints) |
-| UNGM | UN agencies | RSS, no key |
-| World Bank | Multilateral | none |
-| Pakistan PPRA | Domestic | RSS, no key |
+| SAM.gov | US Federal | free `SAM_GOV_API_KEY` from sam.gov |
 
-**No HTML scraping anywhere.** New sources are added as adapters under `packages/ingest/src/adapters/`.
+**Disabled at registry level (broken upstream — see adapter source for reason):**
+
+| Source | Reason |
+|---|---|
+| TED EU | API v3 reworked the `fields` parameter to a strict BT-code allowlist; needs full eForms field-map rewrite |
+| UNGM | Public RSS dropped; only HTML scraping would work (banned by SCOPE.md) |
+| Pakistan PPRA | Migrated to `ppra.gov.pk` and removed RSS; no public API |
+
+Each adapter implements `IngestAdapter` from `packages/ingest/src/types.ts`; set `disabledReason` to retire one without deleting it. Add new adapters under `packages/ingest/src/adapters/` and register them in `packages/ingest/src/index.ts` plus the enum in `prisma/schema.prisma` and `packages/shared/src/constants.ts`.
 
 ## Quick start
 

@@ -37,5 +37,7 @@ export const TENDER_SOURCES = [
   "ungm",
   "world_bank",
   "ppra_pk",
+  "uk_find_a_tender",
+  "uk_contracts_finder",
 ] as const;
 export type TenderSourceId = (typeof TENDER_SOURCES)[number];

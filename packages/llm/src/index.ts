@@ -19,7 +19,13 @@ export {
 } from "./providers/config";
 
 // High-level functions used by the worker and the API.
-export { embedCapabilityProfile, embedTender } from "./embed";
+export {
+  embedCapabilityProfile,
+  embedTender,
+  embeddingHashForProfile,
+  embeddingHashForTender,
+  activeEmbeddingModelStamp,
+} from "./embed";
 export { scoreMatch, type ScoreMatchOptions } from "./score";
 export {
   estimateWinProbability,

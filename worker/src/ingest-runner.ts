@@ -135,6 +135,10 @@ export async function runIngest(): Promise<IngestRunSummary[]> {
 
   for (const source of sources) {
     const adapter = adapters[source];
+    if (adapter.disabledReason) {
+      console.warn(`[ingest:${source}] skipping — disabled: ${adapter.disabledReason}`);
+      continue;
+    }
     const missing = checkRequiredEnv(adapter);
     if (missing.length > 0) {
       console.warn(

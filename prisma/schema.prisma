@@ -60,6 +60,10 @@ model CapabilityProfile {
   budgetMaxUsd    Int      @default(0)
   languages       String[] @default([])
   embeddingStatus EmbeddingStatus @default(pending)
+  // sha256 of (provider:model + flatten-text). When unchanged, embed is skipped.
+  embeddingHash   String?
+  // provider:model that produced the current embedding. Used to invalidate when env changes.
+  embeddingModel  String?
   // Embedding column added via raw SQL migration: ALTER TABLE "CapabilityProfile" ADD COLUMN embedding vector(1024);
   updatedAt       DateTime @updatedAt
   createdAt       DateTime @default(now())
@@ -81,6 +85,8 @@ enum TenderSource {
   ungm
   world_bank
   ppra_pk
+  uk_find_a_tender
+  uk_contracts_finder
 }
 
 model Tender {
@@ -103,6 +109,8 @@ model Tender {
   raw          Json
   // Embedding column added via raw SQL migration: ALTER TABLE "Tender" ADD COLUMN embedding vector(1024);
   embeddingStatus EmbeddingStatus @default(pending)
+  embeddingHash   String?
+  embeddingModel  String?
   ingestedAt   DateTime     @default(now())
 
   matches MatchResult[]

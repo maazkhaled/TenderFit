@@ -11,6 +11,14 @@ export const tedEuAdapter: IngestAdapter = {
   source: "ted_eu",
   label: "TED (EU Public Procurement)",
   requiredEnv: [],
+  // TED v3 reworked its `fields` parameter to a strict allowlist of BT-codes
+  // (eForms standard) and removed the previous human-readable field names
+  // (publication-number aside). A correct rewrite needs a full BT-code field
+  // map (title is BT-21, description is BT-24, but only specific lot/part
+  // variants are accepted). Until that's done, bulk EU coverage comes from
+  // UK Find a Tender (above-threshold UK is the largest single EU-derived
+  // market). Re-enable after the rewrite — see TED v3 docs.
+  disabledReason: "TED EU API v3 fields parameter rework needed — see adapter source for plan",
   async fetchPage({ sinceIso, pageToken, httpJson = defaultHttpJson }) {
     const page = pageToken ? Number.parseInt(pageToken, 10) : 1;
     const sinceDate = toTedDate(sinceIso);

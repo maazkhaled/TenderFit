@@ -1,5 +1,5 @@
 -- Project Beta — pgvector setup. Run after `prisma db push` / `prisma migrate`.
--- Embedding dim 1024 matches voyage-3-large.
+-- 1024 is replaced at generation time by scripts/generate-pgvector-sql.ts.
 
 CREATE EXTENSION IF NOT EXISTS vector;
 

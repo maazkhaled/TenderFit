@@ -121,6 +121,25 @@ export interface ScoreMatchOptions {
   similarHistoricalWins?: SimilarHistoricalWin[];
 }
 
+/**
+ * Blend the model's fitScore with a cosine-derived baseline.
+ *
+ * Why: small local models (qwen2.5:7b, llama3:8b) sometimes overshoot or
+ * undershoot dramatically. Cloud frontier models don't need this. The blend
+ * weight defaults to 0.3 for local providers (ollama/lmstudio) and 0 for
+ * cloud. Override with LLM_SCORE_BLEND_WEIGHT (0..1).
+ *
+ * blended = round(weight * cosineScore + (1 - weight) * modelScore)
+ */
+function defaultBlendWeight(provider: string): number {
+  const env = process.env.LLM_SCORE_BLEND_WEIGHT;
+  if (env != null && env !== "") {
+    const w = Number.parseFloat(env);
+    if (Number.isFinite(w) && w >= 0 && w <= 1) return w;
+  }
+  return provider === "ollama" || provider === "lmstudio" ? 0.3 : 0;
+}
+
 export async function scoreMatch(
   profile: CapabilityProfile,
   tender: NormalizedTender,
@@ -160,7 +179,13 @@ export async function scoreMatch(
     },
   });
 
-  return toMatchResult(data);
+  const weight = defaultBlendWeight(provider.name);
+  const blendedFitScore =
+    weight === 0
+      ? data.fitScore
+      : Math.round(weight * Math.round(clamped * 100) + (1 - weight) * data.fitScore);
+
+  return toMatchResult({ ...data, fitScore: blendedFitScore });
 }
 
 function buildUserContent(

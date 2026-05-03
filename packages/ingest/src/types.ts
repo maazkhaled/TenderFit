@@ -16,6 +16,13 @@ export interface IngestAdapter {
   label: string;
   fetchPage(opts: FetchPageOpts): Promise<FetchPageResult>;
   requiredEnv: string[];
+  /**
+   * If set, the adapter is registered (so historical rows still resolve their
+   * source) but skipped at scheduled run time. Use when the upstream source
+   * has dropped its public API/RSS and there's no clean replacement.
+   * Provide a short reason for operator visibility.
+   */
+  disabledReason?: string;
 }
 
 export type HttpJsonFn = <T = unknown>(url: string, opts?: HttpJsonOpts) => Promise<T>;

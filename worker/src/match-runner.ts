@@ -2,12 +2,17 @@ import {
   findNearestTenders,
   markEmbeddingFailed,
   prisma,
+  readEmbeddingMeta,
   writeEmbedding,
 } from "@beta/db";
 import {
+  activeEmbeddingModelStamp,
   embedCapabilityProfile,
   embedTender,
+  embeddingHashForProfile,
+  embeddingHashForTender,
   scoreMatch,
+  type SimilarHistoricalWin,
 } from "@beta/llm";
 import type {
   CapabilityProfile,
@@ -72,17 +77,37 @@ function profileRowToCapability(row: any, companyName: string): CapabilityProfil
 }
 
 async function embedPendingTenders(): Promise<void> {
+  // Pull rows that are explicitly pending OR have no hash stamped yet (legacy
+  // rows from before the hash column existed).
   const pending = await prisma.tender.findMany({
-    where: { embeddingStatus: "pending" },
+    where: {
+      OR: [{ embeddingStatus: "pending" }, { embeddingHash: null }],
+    },
     take: 100,
   });
   if (pending.length === 0) return;
-  console.log(`[match] embedding ${pending.length} tender(s)`);
+  const modelStamp = activeEmbeddingModelStamp();
+  let embedded = 0;
+  let skipped = 0;
   for (const row of pending) {
     try {
       const tender = tenderRowToNormalized(row);
+      const wantedHash = embeddingHashForTender(tender);
+      const meta = await readEmbeddingMeta("Tender", row.id);
+      if (
+        meta?.hash === wantedHash &&
+        meta?.model === modelStamp &&
+        row.embeddingStatus === "ready"
+      ) {
+        skipped += 1;
+        continue;
+      }
       const vec = await embedTender(tender);
-      await writeEmbedding("Tender", row.id, vec);
+      await writeEmbedding("Tender", row.id, vec, {
+        hash: wantedHash,
+        model: modelStamp,
+      });
+      embedded += 1;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       console.error(`[match] tender embed failed id=${row.id}: ${msg}`);
@@ -93,21 +118,45 @@ async function embedPendingTenders(): Promise<void> {
       }
     }
   }
+  console.log(
+    `[match] tenders: embedded=${embedded} skipped=${skipped} (model=${modelStamp})`,
+  );
 }
 
 async function embedPendingProfiles(): Promise<void> {
   const pending = await prisma.capabilityProfile.findMany({
-    where: { embeddingStatus: "pending" },
+    where: {
+      OR: [{ embeddingStatus: "pending" }, { embeddingHash: null }],
+    },
     include: { tenant: { select: { companyName: true } } },
     take: 100,
   });
   if (pending.length === 0) return;
-  console.log(`[match] embedding ${pending.length} profile(s)`);
+  const modelStamp = activeEmbeddingModelStamp();
+  let embedded = 0;
+  let skipped = 0;
   for (const row of pending) {
     try {
-      const profile = profileRowToCapability(row, row.tenant?.companyName ?? "");
+      const profile = profileRowToCapability(
+        row,
+        row.tenant?.companyName ?? "",
+      );
+      const wantedHash = embeddingHashForProfile(profile);
+      const meta = await readEmbeddingMeta("CapabilityProfile", row.id);
+      if (
+        meta?.hash === wantedHash &&
+        meta?.model === modelStamp &&
+        row.embeddingStatus === "ready"
+      ) {
+        skipped += 1;
+        continue;
+      }
       const vec = await embedCapabilityProfile(profile);
-      await writeEmbedding("CapabilityProfile", row.id, vec);
+      await writeEmbedding("CapabilityProfile", row.id, vec, {
+        hash: wantedHash,
+        model: modelStamp,
+      });
+      embedded += 1;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       console.error(`[match] profile embed failed id=${row.id}: ${msg}`);
@@ -118,32 +167,42 @@ async function embedPendingProfiles(): Promise<void> {
       }
     }
   }
+  console.log(
+    `[match] profiles: embedded=${embedded} skipped=${skipped} (model=${modelStamp})`,
+  );
 }
 
-async function fetchHistoricalWins(tenantId: string) {
-  // TODO(lead): pass real historical wins — current MatchFeedback shape doesn't
-  // expose tender sector/country directly; passing [] keeps win-prob heuristic
-  // working while leaving room for an enrichment join later.
+async function fetchHistoricalWins(
+  tenantId: string,
+): Promise<SimilarHistoricalWin[]> {
   const feedback = await prisma.matchFeedback.findMany({
     where: { tenantId, interested: true },
-    take: 10,
+    take: 20,
+    orderBy: { createdAt: "desc" },
     include: {
       match: {
         include: {
           tender: {
-            select: { sector: true, country: true, buyer: true, budgetMaxUsd: true },
+            select: {
+              sector: true,
+              country: true,
+              buyer: true,
+              budgetMaxUsd: true,
+            },
           },
         },
       },
     },
   });
 
-  return feedback.map((f: any) => ({
-    sector: f.match?.tender?.sector ?? null,
-    country: f.match?.tender?.country ?? null,
-    buyer: f.match?.tender?.buyer ?? null,
-    valueUsd: f.match?.tender?.budgetMaxUsd ?? null,
-  }));
+  return feedback
+    .map((f: any) => ({
+      sector: f.match?.tender?.sector ?? null,
+      country: f.match?.tender?.country ?? null,
+      buyer: f.match?.tender?.buyer ?? null,
+      valueUsd: f.match?.tender?.budgetMaxUsd ?? null,
+    }))
+    .filter((w) => w.sector || w.country || w.buyer);
 }
 
 async function matchForTenant(tenant: {
@@ -220,6 +279,11 @@ async function matchForTenant(tenant: {
 }
 
 export async function runMatch(): Promise<void> {
+  console.log(
+    `[match] active embedding stamp: ${activeEmbeddingModelStamp()} ` +
+      `(provider switch invalidates the hash cache automatically)`,
+  );
+
   console.log("[match] phase 1: embed pending tenders");
   await embedPendingTenders();
 

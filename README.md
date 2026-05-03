@@ -185,6 +185,137 @@ pnpm --filter worker dev  # OR continuous cron mode (ingest 6h, match 1h, digest
 
 The match worker takes 100 tenders per phase. On a fresh ingest of 1500+ tenders, run it ~15 times (or just leave the cron mode running) to drain the queue. Once the `embeddingHash` column is populated, subsequent runs are near-instant — only changed rows re-embed.
 
+## Running the complete app
+
+The app is three independent processes plus an LLM backend. They can all share one terminal session if you background them, but the cleanest layout is one shell per process so logs are readable.
+
+### One-time prep (covers fresh laptop → working app)
+
+```bash
+# 1. Postgres + pgvector + Ollama
+brew install postgresql@17 pgvector ollama
+brew services start postgresql@17
+
+# 2. Database
+psql -U postgres -d postgres -c "CREATE DATABASE project_beta;"
+psql -U postgres -d project_beta -c "CREATE EXTENSION IF NOT EXISTS vector;"
+
+# 3. Project deps + env
+pnpm install
+cp .env.example .env
+# Edit .env: set DATABASE_URL and SESSION_SECRET (>= 32 chars: `openssl rand -hex 24`)
+
+# 4. Schema
+pnpm db:generate
+pnpm db:push
+pnpm db:vector-sql
+psql "$DATABASE_URL" -f packages/db/src/migrations/001_pgvector.sql
+
+# 5. LLM models (run once; ~7 GB total disk)
+ollama serve &        # start the daemon (or run in another shell)
+ollama pull qwen2.5:7b-instruct
+ollama pull qwen2.5:3b-instruct
+ollama pull mxbai-embed-large
+
+# 6. Verify the LLM stack
+pnpm llm:doctor
+# Expect: all 4 checks green (chat ping, embed ping, live 1024-dim embed, structured-output round-trip)
+```
+
+### Day-to-day startup (4 shells)
+
+```bash
+# Shell 1 — Ollama (always-on)
+ollama serve
+
+# Shell 2 — Next.js web app
+pnpm dev:web
+# → http://localhost:3000
+
+# Shell 3 — Cron worker (continuous ingest + match + digest)
+pnpm --filter worker dev
+# → ingest every 6h, match hourly, digest every 15m
+
+# Shell 4 — your terminal for running ad-hoc commands
+```
+
+That's it — the app is fully running. Visit `http://localhost:3000`, sign up a tenant, fill in the capability profile, and matches start flowing on the next worker tick.
+
+### First-run shortcut (skip waiting for cron)
+
+The cron worker takes up to 6 h to do its first ingest. To see results immediately on a fresh DB, force one full pass:
+
+```bash
+pnpm worker:ingest          # pulls ~1500 tenders from 5 sources (~30 s)
+
+# match worker takes 100 tenders/phase; drain the queue:
+for i in {1..18}; do pnpm worker:match; done
+# Each pass is ~1 min on local Ollama. After ~18 passes the embedding queue
+# is empty and the persistent hash cache means subsequent runs are seconds.
+```
+
+### Onboarding a tenant via API (optional, no UI needed)
+
+```bash
+curl -s -i -X POST http://localhost:3000/api/v1/tenants/onboard \
+  -H 'Content-Type: application/json' \
+  -c /tmp/cookies.txt \
+  -d '{
+    "companyName":"Acme Cloud Co",
+    "oneLiner":"AWS-native custom software dev shop in Karachi, 18 engineers.",
+    "industries":["fintech","logistics"],
+    "techStack":["TypeScript","AWS","Postgres","React"],
+    "services":["custom software dev","cloud migration","DevOps"],
+    "certifications":["ISO 27001"],
+    "pastClients":["Bank Alfalah"],
+    "pastProjects":[{"title":"Mobile banking revamp","summary":"Re-architected a tier-1 mobile banking app on AWS.","sector":"fintech","valueUsd":750000}],
+    "geographies":["PK","AE"],
+    "teamSize":18,
+    "budgetRangeUsd":{"min":100000,"max":1500000},
+    "languages":["en","ur"]
+  }'
+# → 201 Created with { tenantId, slug }, sets the beta_session cookie
+
+curl -b /tmp/cookies.txt http://localhost:3000/api/v1/matches
+# → ranked match list once the worker has scored some
+```
+
+### Stopping everything
+
+```bash
+# Ctrl-C in each shell, or:
+pkill -f "next dev"
+pkill -f "tsx watch"
+brew services stop postgresql@17
+pkill -f "ollama serve"        # only if you're done for the session
+```
+
+### Health checks
+
+```bash
+pnpm llm:doctor                # LLM stack
+pg_isready -h localhost -p 5432  # Postgres
+curl -s http://localhost:11434/api/tags | jq        # Ollama models loaded
+curl -s http://localhost:3000 -o /dev/null -w '%{http_code}\n'  # Web app
+```
+
+### Production switch (no code change)
+
+Set in `.env` for cloud LLMs and re-run the worker / web app:
+
+```env
+LLM_PROVIDER=anthropic
+LLM_REASONING_MODEL=claude-opus-4-7
+LLM_FAST_MODEL=claude-haiku-4-5-20251001
+ANTHROPIC_API_KEY=sk-ant-...
+
+EMBEDDING_PROVIDER=voyage
+EMBEDDING_MODEL=voyage-3-large
+VOYAGE_API_KEY=pa-...
+```
+
+Or self-host Ollama on a GPU VM and only change `OLLAMA_BASE_URL`.
+
 ### Hardware notes (M4 Pro, 24 GB)
 
 | Workload | Recommended local model | Resident |

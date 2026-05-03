@@ -25,9 +25,18 @@ function isToday(d: string | Date | null | undefined) {
   );
 }
 
+// Local LLMs (qwen2.5:7b etc.) score conservatively — a "60" cutoff that
+// makes sense for Claude Opus produces an empty dashboard on local. Lower
+// the default and let operators override via DASHBOARD_MIN_FIT_SCORE.
+const DEFAULT_MIN = Number.parseInt(
+  process.env.DASHBOARD_MIN_FIT_SCORE ?? "30",
+  10,
+);
+
 export default async function DashboardPage() {
+  const minScore = Number.isFinite(DEFAULT_MIN) ? DEFAULT_MIN : 30;
   const data = await apiGetSafe<MatchesResponse>(
-    "/api/v1/matches?minScore=60",
+    `/api/v1/matches?minScore=${minScore}`,
   );
   const matches = data?.matches ?? [];
 
@@ -42,7 +51,7 @@ export default async function DashboardPage() {
       <header className="space-y-1">
         <h1 className="text-3xl font-semibold tracking-tight">Dashboard</h1>
         <p className="text-sm text-zinc-600">
-          Tenders matched against your capability profile, fit-score 60+.
+          Tenders matched against your capability profile, fit-score {minScore}+.
         </p>
       </header>
 

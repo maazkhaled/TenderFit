@@ -1,8 +1,10 @@
-# Project Beta
+# Project Beta — TenderFit
 
-Multi-tenant SaaS that ingests tender / RFP / project opportunities (domestic and international) from **official, license-friendly sources only**, matches them against a tenant company's capability profile using LLM-powered fit scoring + gap analysis, and delivers **scheduled digests** (not always-on alerts).
+Multi-tenant SaaS that ingests tender / RFP / project opportunities (domestic and international) from public-facing official sources, matches them against a tenant company's capability profile using LLM-powered fit scoring + gap analysis, and delivers **scheduled digests** (not always-on alerts).
 
 Target buyer: any IT services / software / consulting company that bids on opportunities.
+
+The default stack runs **fully on a laptop, free of API charges**: local LLM via Ollama, local embeddings, local Postgres + pgvector. Same code switches to managed cloud (Anthropic / OpenAI / Voyage) by changing env vars — no code changes.
 
 > See `SCOPE.md` for the full product brief, architectural contracts, and the "innovative bit" specification.
 
@@ -30,20 +32,24 @@ project-beta/
 └── packages/
     ├── shared/                    ← Zod schemas, types, constants
     ├── db/                        ← Prisma client + pgvector helpers
-    ├── ingest/                    ← Source adapters (SAM.gov, TED EU, UNGM, World Bank, PPRA)
+    ├── ingest/                    ← Source adapters (World Bank, UK Find a Tender, UK Contracts Finder, PPRA, UNGM, SAM.gov, TED EU)
     ├── llm/                       ← Pluggable matching engine (Ollama / LM Studio / OpenAI / Claude + Voyage)
     └── notifications/             ← Digest builder + renderer + sender
 ```
 
-## Data sources (all official, license-friendly, no HTML scraping)
+## Data sources
+
+All sources are official public listings. Most use a JSON / OCDS / RSS API; two (PPRA and UNGM) publish only HTML and are scraped politely (see *Scraping policy* below).
 
 **Active by default — no API key required:**
 
-| Source | Coverage | Endpoint | Status |
+| Source | Coverage | Mechanism | Notes |
 |---|---|---|---|
-| World Bank | Multilateral | `search.worldbank.org` JSON | ✅ live |
-| UK Find a Tender | Above-threshold UK procurement | OCDS JSON (`find-tender.service.gov.uk/api/1.0`) | ✅ live |
-| UK Contracts Finder | Below-threshold + SME-friendly UK contracts | OCDS JSON (`contractsfinder.service.gov.uk/.../OCDS`) | ✅ live |
+| World Bank | Multilateral | JSON API | `search.worldbank.org` |
+| UK Find a Tender | Above-threshold UK procurement | OCDS JSON | `find-tender.service.gov.uk/api/1.0` |
+| UK Contracts Finder | Below-threshold + SME-friendly UK contracts | OCDS JSON | `contractsfinder.service.gov.uk/.../OCDS` |
+| Pakistan PPRA (EPMS) | Federal + provincial PK procurement | HTML scrape (polite) | `epms.ppra.gov.pk/public/tenders/active-tenders` |
+| UNGM | UN agency procurement (UNDP, UNICEF, WFP, IOM, UNHCR…) | HTML rows from JSON-shaped POST | `ungm.org/Public/Notice/Search` |
 
 **Optional — needs free API key registration:**
 
@@ -51,26 +57,46 @@ project-beta/
 |---|---|---|
 | SAM.gov | US Federal | free `SAM_GOV_API_KEY` from sam.gov |
 
-**Disabled at registry level (broken upstream — see adapter source for reason):**
+**Disabled (upstream change required):**
 
 | Source | Reason |
 |---|---|
-| TED EU | API v3 reworked the `fields` parameter to a strict BT-code allowlist; needs full eForms field-map rewrite |
-| UNGM | Public RSS dropped; only HTML scraping would work (banned by SCOPE.md) |
-| Pakistan PPRA | Migrated to `ppra.gov.pk` and removed RSS; no public API |
+| TED EU | API v3 reworked the `fields` parameter to a strict BT-code allowlist; needs eForms field-map rewrite |
 
-Each adapter implements `IngestAdapter` from `packages/ingest/src/types.ts`; set `disabledReason` to retire one without deleting it. Add new adapters under `packages/ingest/src/adapters/` and register them in `packages/ingest/src/index.ts` plus the enum in `prisma/schema.prisma` and `packages/shared/src/constants.ts`.
+### Scraping policy
+
+When a source has no JSON / RSS / Atom alternative we fall back to HTML scraping the publicly-listed tenders page. Politeness rules are enforced in `packages/ingest/src/util/html-scrape.ts`:
+
+- ≥ 2 s between requests to the same host (per-host token bucket)
+- Browser User-Agent + `Accept-Language` (default ingest UA gets rejected by some gov servers)
+- Exponential backoff on 429/5xx, max 3 attempts, no retry storms
+- Listing pages only — no per-tender detail or PDF fetches
+- Each scraping adapter has a comment explaining the policy and the conditions under which to flip the adapter's `disabledReason` (persistent 4xx, ToS change, IP block) rather than fight it
+
+### Adding a source
+
+Each adapter implements `IngestAdapter` from `packages/ingest/src/types.ts`. Add new adapters under `packages/ingest/src/adapters/` and register them in `packages/ingest/src/index.ts` plus the enum in `prisma/schema.prisma` and `packages/shared/src/constants.ts`. Set `disabledReason` to retire an adapter without deleting historical rows.
 
 ## Quick start
 
-Prerequisites: Node ≥ 20.10, pnpm 9, PostgreSQL 16 with the `vector` extension. **No paid API keys required** for the default local-first config.
+Prerequisites: Node ≥ 20.10, pnpm 9, PostgreSQL 16+, [pgvector](https://github.com/pgvector/pgvector), [Ollama](https://ollama.com). **No paid API keys required** for the default local-first config.
+
+```bash
+# macOS
+brew install postgresql@17 pgvector ollama
+brew services start postgresql@17
+ollama serve &        # run in another shell or as a service
+```
 
 ### 1. Install
 
 ```bash
 pnpm install
 cp .env.example .env
-# fill DATABASE_URL — leave LLM_* defaults alone for local-first dev
+# Open .env and:
+#   - set DATABASE_URL to your local Postgres
+#   - set SESSION_SECRET to a 32+ char random string (e.g. `openssl rand -hex 24`)
+#   - leave LLM_* defaults alone for local-first dev
 ```
 
 ### 2. Pick an LLM stack
@@ -132,6 +158,11 @@ Run Ollama on a GPU VM (RunPod, Lambda Labs, Vast.ai, Scaleway H100, your own bo
 ### 3. DB
 
 ```bash
+# Create the database (one-time)
+psql "$DATABASE_URL_ROOT" -c "CREATE DATABASE project_beta;"
+psql "$DATABASE_URL"      -c "CREATE EXTENSION IF NOT EXISTS vector;"
+
+# Schema + pgvector columns
 pnpm db:generate
 pnpm db:push
 pnpm db:vector-sql                            # generates SQL with current EMBEDDING_DIM
@@ -140,15 +171,19 @@ psql "$DATABASE_URL" -f packages/db/src/migrations/001_pgvector.sql
 
 If you change `EMBEDDING_DIM` later (e.g. switching to a 768-dim or 1536-dim embedding model), re-run `pnpm db:vector-sql` and re-apply the SQL.
 
+**Caveat: the `Tender` and `CapabilityProfile` tables hold the `embedding` columns via raw SQL, not Prisma.** Subsequent `prisma db push` runs will warn about "data loss" wanting to drop them. Apply enum/column changes via raw `ALTER` statements — see the existing TenderSource enum extension in `packages/db/src/migrations/`.
+
 ### 4. Dev
 
 ```bash
-pnpm dev:web            # Next.js on :3000
-pnpm worker:ingest      # one-shot: pull new tenders
-pnpm worker:match       # one-shot: embed + score
-pnpm worker:digest      # one-shot: send digests for due tenants
-pnpm --filter worker dev  # OR continuous cron mode
+pnpm dev:web              # Next.js on :3000
+pnpm worker:ingest        # one-shot: pull new tenders from all enabled sources
+pnpm worker:match         # one-shot: embed + score (skips rows whose content hash is unchanged)
+pnpm worker:digest        # one-shot: send digests for due tenants
+pnpm --filter worker dev  # OR continuous cron mode (ingest 6h, match 1h, digest 15m)
 ```
+
+The match worker takes 100 tenders per phase. On a fresh ingest of 1500+ tenders, run it ~15 times (or just leave the cron mode running) to drain the queue. Once the `embeddingHash` column is populated, subsequent runs are near-instant — only changed rows re-embed.
 
 ### Hardware notes (M4 Pro, 24 GB)
 
@@ -159,7 +194,15 @@ pnpm --filter worker dev  # OR continuous cron mode
 | Embeddings | `mxbai-embed-large` | ~700 MB |
 | Bigger reasoning (slower) | `qwen2.5:14b-instruct` Q4 | ~9 GB |
 
-Schema-constrained decoding via Ollama's `format: <json schema>` is the key reason the matcher's structured outputs are reliable on local 7B models. Each fit-score call is ~2–6s on the M4 Pro; cached embeddings (in-memory LRU) keep repeated runs fast.
+Schema-constrained decoding via Ollama's `format: <json schema>` is the key reason the matcher's structured outputs are reliable on local 7B models. Each fit-score call is ~2–6s on the M4 Pro; cached embeddings (in-memory LRU + persistent `embeddingHash` column) keep repeated runs fast.
+
+### Provider-aware score blending
+
+Small local models can swing the LLM-assigned `fitScore` more than frontier models. When the active chat provider is `ollama` or `lmstudio`, `scoreMatch` blends the model's score with the cosine-derived baseline (default weight `0.3`, override with `LLM_SCORE_BLEND_WEIGHT`). Cloud providers run unblended.
+
+### Persistent embedding cache
+
+Each `Tender` and `CapabilityProfile` row stores a `(embeddingHash, embeddingModel)` pair so the match worker skips re-embedding when nothing has changed. Provider/model swaps invalidate automatically because the model name is part of the hash.
 
 ## Cron schedule (continuous mode)
 
@@ -197,9 +240,16 @@ Each agent left a `*AGENT_NOTES.md` / `FRONTEND_NOTES.md` in its package summari
 
 ## Status
 
-This is an MVP **scaffold** that proves the architecture and the matching loop. Not production. Outstanding lead-owned items are tracked in the per-agent notes files and grep-able as `TODO(lead):` markers across the tree.
+This is an MVP that proves the architecture and the matching loop end-to-end:
+
+- ✅ 5 sources actively ingest live tenders (1,765 tenders in the dev DB at last verified run)
+- ✅ Local LLM stack scores fit + gaps + win-prob, structured-output verified with qwen2.5:7b
+- ✅ Capability statement generation works end-to-end against local models
+- ✅ Persistent embedding cache + provider-aware scoring
+- ✅ Cloud providers (Anthropic / OpenAI / Voyage) drop in via env-var swap
+
+Not yet production: no real auth (single-user-per-tenant stub), no rate-limit handling beyond polite scraping, no payment, no live FX feed (static fallback rates), TED EU adapter awaiting BT-code rewrite. Outstanding items are grep-able as `TODO(lead):` markers across the tree.
 
 ## License
 
 UNLICENSED — internal exploration. Confirm a license before any external distribution.
-# TenderFit

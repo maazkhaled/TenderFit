@@ -8,3 +8,8 @@ dist
 .turbo
 coverage
 .pnpm-store
+# Claude Code harness state — local worktrees, agent caches, settings.
+.claude/
+# TypeScript incremental build artifact (machine-specific).
+tsconfig.tsbuildinfo
+**/tsconfig.tsbuildinfo

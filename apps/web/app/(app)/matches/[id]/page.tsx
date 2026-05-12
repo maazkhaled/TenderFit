@@ -1,7 +1,11 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { ExternalLink, Calendar, Wallet, Tag } from "lucide-react";
-import type { MatchResult, WinProbability } from "@beta/shared";
+import { ExternalLink, Calendar, Wallet, Tag, Users } from "lucide-react";
+import type {
+  HumanResourcesEstimate,
+  MatchResult,
+  WinProbability,
+} from "@beta/shared";
 import { apiGetSafe } from "@/lib/ui/fetch-server";
 import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/Card";
 import { FitScore } from "@/components/domain/FitScore";
@@ -64,6 +68,9 @@ export default async function MatchDetailPage({
   );
   if (!data?.match) notFound();
   const { match } = data;
+  const humanResourcesEstimate = normalizeHumanResourcesEstimate(
+    match.humanResourcesEstimate,
+  );
 
   return (
     <div className="space-y-8">
@@ -165,6 +172,15 @@ export default async function MatchDetailPage({
 
           <Card>
             <CardHeader>
+              <CardTitle>Minimum human resources</CardTitle>
+            </CardHeader>
+            <CardBody>
+              <HumanResourcesPanel estimate={humanResourcesEstimate} />
+            </CardBody>
+          </Card>
+
+          <Card>
+            <CardHeader>
               <CardTitle>Win-probability reasoning</CardTitle>
             </CardHeader>
             <CardBody>
@@ -180,6 +196,87 @@ export default async function MatchDetailPage({
         matchId={match.id}
         initialStatement={match.capabilityStatement ?? null}
       />
+    </div>
+  );
+}
+
+function normalizeHumanResourcesEstimate(
+  value: HumanResourcesEstimate | null | undefined,
+): HumanResourcesEstimate {
+  if (
+    value &&
+    typeof value.minimumPeople === "number" &&
+    Array.isArray(value.roles) &&
+    value.confidence &&
+    value.basis &&
+    value.notes
+  ) {
+    return value;
+  }
+  return {
+    minimumPeople: 0,
+    confidence: "low",
+    basis: "inferred",
+    roles: [],
+    notes:
+      "No estimate is available for this historical match. Re-run matching to generate it.",
+  };
+}
+
+function HumanResourcesPanel({
+  estimate,
+}: {
+  estimate: HumanResourcesEstimate;
+}) {
+  const roleCount = estimate.roles.reduce((sum, role) => sum + role.count, 0);
+  return (
+    <div className="space-y-4">
+      <div className="flex items-start gap-3">
+        <div className="rounded-lg bg-zinc-50 p-2">
+          <Users className="h-4 w-4 text-zinc-500" />
+        </div>
+        <div>
+          <p className="text-xs font-medium uppercase tracking-wider text-zinc-500">
+            Minimum team
+          </p>
+          <p className="mt-1 text-2xl font-semibold tabular-nums text-ink">
+            {estimate.minimumPeople}
+          </p>
+          <p className="mt-1 text-xs text-zinc-500">
+            {estimate.basis} basis · {estimate.confidence} confidence
+          </p>
+        </div>
+      </div>
+
+      {estimate.roles.length > 0 ? (
+        <div className="space-y-2.5">
+          {estimate.roles.map((role, i) => (
+            <div key={`${role.role}-${i}`} className="rounded-md border border-zinc-200 p-3">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-sm font-medium text-ink">{role.role}</p>
+                  {role.seniority ? (
+                    <p className="mt-0.5 text-xs text-zinc-500">{role.seniority}</p>
+                  ) : null}
+                </div>
+                <span className="rounded-md bg-zinc-100 px-2 py-1 text-xs font-medium tabular-nums text-zinc-700">
+                  {role.count}
+                </span>
+              </div>
+              <p className="mt-2 text-xs leading-5 text-zinc-600">{role.rationale}</p>
+            </div>
+          ))}
+        </div>
+      ) : null}
+
+      {roleCount !== estimate.minimumPeople && estimate.roles.length > 0 ? (
+        <p className="rounded-md bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800">
+          Role counts total {roleCount}; the model kept {estimate.minimumPeople} as
+          the minimum team size because of overlap or shared responsibilities.
+        </p>
+      ) : null}
+
+      <p className="text-xs leading-5 text-zinc-500">{estimate.notes}</p>
     </div>
   );
 }

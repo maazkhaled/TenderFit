@@ -47,9 +47,10 @@ export async function buildDigestForTenant(
       tenderUrl: m.tender.url,
       buyer: m.tender.buyer,
       deadlineAt: m.tender.deadlineAt,
-      fitScore: m.fitScore,
-      rationale: Array.isArray(m.rationale) ? m.rationale.slice(0, 3) : [],
-      winProbability: m.winProbability,
-    })),
+          fitScore: m.fitScore,
+          rationale: Array.isArray(m.rationale) ? m.rationale.slice(0, 3) : [],
+          winProbability: m.winProbability,
+          humanResourcesEstimate: m.humanResourcesEstimate as any,
+        })),
   };
 }

@@ -1,18 +1,28 @@
 import { prisma } from "../db";
+import type { TenderSourceId } from "@beta/shared";
 
 export type MatchListParams = {
   tenantId: string;
   from?: Date;
   to?: Date;
   minScore?: number;
+  sources?: TenderSourceId[];
+  sourceFilter?: boolean;
 };
 
 export async function listMatchesForTenant(params: MatchListParams) {
-  const { tenantId, from, to, minScore = 0 } = params;
+  const { tenantId, from, to, minScore = 0, sources, sourceFilter = false } = params;
   return prisma.matchResult.findMany({
     where: {
       tenantId,
       fitScore: { gte: minScore },
+      ...(sourceFilter
+        ? {
+            tender: {
+              source: { in: sources ?? [] },
+            },
+          }
+        : {}),
       ...(from || to
         ? {
             createdAt: {

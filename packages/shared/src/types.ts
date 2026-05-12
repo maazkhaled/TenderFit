@@ -1,4 +1,23 @@
-import type { TenderSourceId } from "./constants";
+import type { TenderSourceId } from "./constants.ts";
+
+export type TenderSourceCategory =
+  | "government"
+  | "multilateral"
+  | "un_agency"
+  | "domestic"
+  | "it_digital"
+  | "planning_data"
+  | "international"
+  | "gcc";
+
+export interface TenderSourceCatalogEntry {
+  id: TenderSourceId;
+  label: string;
+  category: TenderSourceCategory;
+  url: string;
+  checkboxLabel: string;
+  description: string;
+}
 
 export interface NormalizedTender {
   externalId: string;
@@ -50,6 +69,24 @@ export interface CapabilityGap {
 
 export type WinProbability = "low" | "medium" | "high";
 
+export type HumanResourcesEstimateConfidence = "low" | "medium" | "high";
+export type HumanResourcesEstimateBasis = "explicit" | "inferred" | "mixed";
+
+export interface HumanResourceRoleEstimate {
+  role: string;
+  count: number;
+  seniority: string | null;
+  rationale: string;
+}
+
+export interface HumanResourcesEstimate {
+  minimumPeople: number;
+  confidence: HumanResourcesEstimateConfidence;
+  basis: HumanResourcesEstimateBasis;
+  roles: HumanResourceRoleEstimate[];
+  notes: string;
+}
+
 export interface MatchResult {
   tenderId: string;
   tenantId: string;
@@ -58,6 +95,7 @@ export interface MatchResult {
   gaps: CapabilityGap[];
   winProbability: WinProbability;
   winProbabilityReason: string;
+  humanResourcesEstimate: HumanResourcesEstimate;
   capabilityStatement?: string;
   modelVersion: string;
 }
@@ -86,5 +124,6 @@ export interface DigestPayload {
     fitScore: number;
     rationale: string[];
     winProbability: WinProbability;
+    humanResourcesEstimate: HumanResourcesEstimate;
   }>;
 }

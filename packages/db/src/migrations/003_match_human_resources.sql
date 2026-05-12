@@ -1,0 +1,2 @@
+ALTER TABLE "MatchResult"
+ADD COLUMN IF NOT EXISTS "humanResourcesEstimate" JSONB NOT NULL DEFAULT '{}';

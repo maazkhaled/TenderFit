@@ -4,7 +4,7 @@ import { LayoutDashboard, UserCog, CalendarClock, Sparkles } from "lucide-react"
 
 const NAV = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/onboard", label: "Profile", icon: UserCog },
+  { href: "/profile", label: "Profile", icon: UserCog },
   { href: "/schedule", label: "Schedule", icon: CalendarClock },
 ];
 

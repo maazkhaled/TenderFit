@@ -10,8 +10,8 @@
 //   - We hit the JSON-shaped POST that returns HTML — no per-detail fetches.
 
 import { NormalizedTenderSchema, type NormalizedTender } from "@beta/shared";
-import type { IngestAdapter } from "../types";
-import { fetchHtml, decodeEntities, stripTags } from "../util/html-scrape";
+import type { IngestAdapter } from "../types.ts";
+import { fetchHtml, decodeEntities, stripTags } from "../util/html-scrape.ts";
 
 const SEARCH_URL = "https://www.ungm.org/Public/Notice/Search";
 const PAGE_SIZE = 25;

@@ -1,9 +1,9 @@
 // source: https://www.contractsfinder.service.gov.uk/apidocumentation
 // Free, no API key. Returns OCDS-format release packages. UK below-threshold
 // procurement and SME-friendly contracts. Same OCDS schema as Find a Tender.
-import type { IngestAdapter } from "../types";
-import { httpJson as defaultHttpJson } from "../util/http";
-import { ocdsReleasesToTenders, type OcdsReleasePackage } from "../util/ocds";
+import type { IngestAdapter } from "../types.ts";
+import { httpJson as defaultHttpJson } from "../util/http.ts";
+import { ocdsReleasesToTenders, type OcdsReleasePackage } from "../util/ocds.ts";
 
 const ENDPOINT =
   "https://www.contractsfinder.service.gov.uk/Published/Notices/OCDS/Search";

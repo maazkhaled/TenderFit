@@ -32,36 +32,63 @@ project-beta/
 └── packages/
     ├── shared/                    ← Zod schemas, types, constants
     ├── db/                        ← Prisma client + pgvector helpers
-    ├── ingest/                    ← Source adapters (World Bank, UK Find a Tender, UK Contracts Finder, PPRA, UNGM, SAM.gov, TED EU)
-    ├── llm/                       ← Pluggable matching engine (Ollama / LM Studio / OpenAI / Claude + Voyage)
+    ├── ingest/                    ← Source adapters (28 sources — World Bank, UK Find a Tender, UK Contracts Finder, PPRA, UNGM, UNDP, NITB, PITB, Ignite, Planning Commission, Urban Unit, PDA, SAM.gov, …)
+    ├── llm/                       ← Pluggable matching engine (Ollama / LM Studio / OpenAI / Anthropic / Voyage / Gemini / NVIDIA NIM)
     └── notifications/             ← Digest builder + renderer + sender
 ```
 
 ## Data sources
 
-All sources are official public listings. Most use a JSON / OCDS / RSS API; two (PPRA and UNGM) publish only HTML and are scraped politely (see *Scraping policy* below).
+All sources are official public listings. Where available we use a JSON / OCDS / RSS API; otherwise we polite-scrape the public listing page (see *Scraping policy* below). 28 source slots are registered, 12 active by default, 1 optional-with-key, 1 awaiting rework, 14 disabled pending upstream changes.
 
-**Active by default — no API key required:**
+The dashboard exposes per-tenant source filtering via checkboxes (`SourceFilter` component); operators can also narrow a worker run with `INGEST_SOURCES=source_a,source_b` for targeted backfills.
 
-| Source | Coverage | Mechanism | Notes |
+### Active by default — no API key required
+
+| ID | Source | Coverage | Mechanism | Endpoint |
+|---|---|---|---|---|
+| `world_bank` | World Bank | Multilateral | JSON API | `search.worldbank.org` |
+| `uk_find_a_tender` | UK Find a Tender | Above-threshold UK procurement | OCDS JSON | `find-tender.service.gov.uk/api/1.0` |
+| `uk_contracts_finder` | UK Contracts Finder | Below-threshold + SME-friendly UK contracts | OCDS JSON | `contractsfinder.service.gov.uk/.../OCDS` |
+| `ppra_pk` | Pakistan Federal PPRA (EPMS) | Federal PK procurement | HTML scrape (polite) | `epms.ppra.gov.pk/public/tenders/active-tenders` |
+| `ungm` | UNGM | UN agency procurement (UNDP, UNICEF, WFP, IOM, UNHCR…) | HTML rows from JSON-shaped POST | `ungm.org/Public/Notice/Search` |
+| `undp` | UNDP Procurement Notices | UNDP global procurement | RSS 1.0 / RDF feed | `procurement-notices.undp.org/rss_feeds/rss.xml` |
+| `nitb_pk` | National IT Board (PK) | Federal IT/digital procurement | HTML scrape (polite) | `nitb.gov.pk/tender.html` |
+| `pitb_pk` | Punjab IT Board | Punjab IT/digital procurement | HTML scrape (polite) | `pitb.gov.pk/tendernotices` |
+| `planning_commission_pk` | Planning Commission (PK) | Federal planning ministry procurement | HTML scrape (polite) | `pc.gov.pk/web/tender` |
+| `urban_unit_pk` | The Urban Unit (PK) | Punjab urban planning procurement | HTML scrape (polite) | `urbanunit.gov.pk/procurement` |
+| `ignite_pk` | Ignite National Technology Fund | PK IT R&D RFPs | HTML scrape (polite) | `ignite.org.pk/rfps/` |
+| `pda_pk` | Pakistan Digital Authority | Federal digital-services procurement | HTML scrape (polite, **insecureTls**) | `www.pda.gov.pk/procurement.php` |
+
+> `pda_pk` is fetched via Node's built-in `https` module with `rejectUnauthorized:false` because pda.gov.pk's server omits its intermediate cert. The exemption is scoped to this single host — see `packages/ingest/src/util/html-scrape.ts:fetchHtmlInsecure`. Remove `insecureTls: true` from `adapters/pda_pk.ts` once they fix the chain.
+
+### Optional — needs free API key registration
+
+| ID | Source | Coverage | Auth |
 |---|---|---|---|
-| World Bank | Multilateral | JSON API | `search.worldbank.org` |
-| UK Find a Tender | Above-threshold UK procurement | OCDS JSON | `find-tender.service.gov.uk/api/1.0` |
-| UK Contracts Finder | Below-threshold + SME-friendly UK contracts | OCDS JSON | `contractsfinder.service.gov.uk/.../OCDS` |
-| Pakistan PPRA (EPMS) | Federal + provincial PK procurement | HTML scrape (polite) | `epms.ppra.gov.pk/public/tenders/active-tenders` |
-| UNGM | UN agency procurement (UNDP, UNICEF, WFP, IOM, UNHCR…) | HTML rows from JSON-shaped POST | `ungm.org/Public/Notice/Search` |
+| `sam_gov` | SAM.gov | US Federal | free `SAM_GOV_API_KEY` from sam.gov |
 
-**Optional — needs free API key registration:**
+### Registered but disabled (upstream change required)
 
-| Source | Coverage | Auth |
+| ID | Reason | What it would take to enable |
 |---|---|---|
-| SAM.gov | US Federal | free `SAM_GOV_API_KEY` from sam.gov |
+| `ted_eu` | API v3 reworked the `fields` parameter to a strict BT-code allowlist | eForms BT-code field-map rewrite |
+| `eprocure_pk` | Public listings are already covered by EPMS/PPRA; no separate stable feed | Wait for a dedicated public endpoint |
+| `ppra_punjab` | Punjab portal links out to `eproc.punjab.gov.pk` which is IP-gated from outside PK | Test from a PK-hosted runner |
+| `kppra` | KP procurement routes through `kp.eprocure.gov.pk/EPADS`; requires supplier registration | Wait for anonymous feed or run a KP-region runner |
+| `ppra_sindh` | SPPRA has only legacy search pages, no clean unified feed | Hand-crafted scraper if needed (high effort, low yield) |
+| `bppra_balochistan` | BPPRA portal returns 5xx and lacks a stable feed | Wait for portal stabilisation |
+| `pseb_pk` | No official tender feed; search results scatter into third-party job boards | Wait for an official PSEB procurement page |
+| `nadra_pk` | Site returns 403 to non-browser clients (likely Cloudflare/WAF) | Headless browser fetch or contact NADRA for an API |
+| `sop_pk` | Official tender URL redirects to a malformed host | Fix upstream URL or scrape a working mirror |
+| `ppwd_pk` | Domain unresolvable | Wait for site to come back online |
+| `adb` | Procurement pages exist but no stable current-opportunity feed | ADB Open Data API workaround (large dataset, would need filtering) |
+| `etimad_sa` | Saudi platform is behind JS/anti-bot; the dev API requires a paid subscription | Etimad Developer Portal subscription |
+| `kuwait_capt` | Cloudflare 403 to non-interactive clients | Headless browser fetch + IP-rep workaround |
+| `kuwait_egov_ctc` | eService entry point, not a machine-readable feed | Wait for an open data endpoint |
+| `kuwait_cbk` | Requires supplier registration | Apply for supplier access |
 
-**Disabled (upstream change required):**
-
-| Source | Reason |
-|---|---|
-| TED EU | API v3 reworked the `fields` parameter to a strict BT-code allowlist; needs eForms field-map rewrite |
+Disabled sources still appear in the source catalog so operators can see them in the dashboard with their disabled reason; they're skipped by ingest.
 
 ### Scraping policy
 
@@ -107,10 +134,69 @@ The matcher and capability-statement generator both go through a provider abstra
 |---|---|---|---|
 | Local dev (default) | `ollama` | `ollama` | free |
 | Local dev via LM Studio UI | `lmstudio` | `lmstudio` | free |
+| Free cloud (Google Gemini) | `gemini` | `gemini` | free tier — ~10 RPM / 250 RPD |
+| Free cloud (NVIDIA NIM) | `nvidia` | `nvidia` | free dev tier on build.nvidia.com |
 | Self-hosted prod (Ollama on a GPU VM) | `ollama` (remote URL) | `ollama` (remote URL) | infra only |
 | Cloud prod (Anthropic + Voyage) | `anthropic` | `voyage` | pay per call |
 | Cloud prod (OpenAI single-vendor) | `openai` | `openai` | pay per call |
 | Mixed (cheap embed + paid reasoning) | `anthropic` | `ollama` (remote) | partial |
+
+#### What each provider is used for
+
+The matcher does three model-bound things; each maps to a specific call shape and provider tier. Pick a provider per task using this table — the matching code itself does not care, so a "best for X" decision is just env var configuration.
+
+| Pipeline task | Code path | API shape | Reasoning model tier | Embedding model | Latency / call (local) | Latency / call (cloud) |
+|---|---|---|---|---|---|---|
+| **Tender + profile embedding** | `packages/llm/src/embed.ts` | `EmbeddingProvider.embed(texts)` | — | `EMBEDDING_PROVIDER` × `EMBEDDING_MODEL` | ~80–200 ms (mxbai) | ~150 ms (Voyage/Gemini/NIM) |
+| **Fit score + gaps + win-prob + HR estimate** (structured JSON) | `packages/llm/src/score.ts` | `chatStructured` (schema-enforced) | `LLM_REASONING_MODEL` | — | ~3–8 s (qwen2.5:7b) | ~1–3 s (Claude/Gemini/NIM) |
+| **Capability statement draft** (free-form text) | `packages/llm/src/capability-statement.ts` | `chatText` | `LLM_REASONING_MODEL` | — | ~10–25 s (qwen2.5:7b) | ~3–6 s (cloud) |
+| **Doctor probe / sanity classification** | `packages/llm/src/doctor.ts` | `chatStructured` | `LLM_FAST_MODEL` | — | ~1 s | <1 s |
+
+The fast tier (`LLM_FAST_MODEL`) is plumbed for future light-touch extractions (e.g. quick deadline/budget normalization) but currently only the doctor uses it. Reasoning tier owns the moat. Embeddings are independent — many production deployments will pair a cheap-and-fast embed provider with a stronger reasoning provider.
+
+#### Picking a provider for each task
+
+| Task | Best **free / local** | Best **free cloud** | Best **paid cloud** | Avoid |
+|---|---|---|---|---|
+| Embeddings | `ollama` + `mxbai-embed-large` (1024-dim, runs on CPU) | `nvidia` + `baai/bge-m3` (1024-dim native, no migration); fallback `gemini` + `gemini-embedding-001` (MRL-truncated to 1024) | `voyage` + `voyage-3-large` (strongest retrieval quality) or `openai` + `text-embedding-3-small` | `anthropic` — no embedding endpoint |
+| Fit score + gaps + win-prob (structured JSON) | `ollama` + `qwen2.5:7b-instruct` (schema-constrained decoding is rock-solid here) | `gemini` + `gemini-2.5-flash` (free tier, strong JSON adherence, ~10 RPM/250 RPD) or `nvidia` + `meta/llama-3.3-70b-instruct` (free dev tier) | `anthropic` + `claude-opus-4-7` (forced tool-use is the gold standard for structured output) | `lmstudio` with older builds — set `OAI_STRICT_SCHEMA=false` if it rejects strict mode |
+| Capability statement (free-form, long-form text) | `ollama` + `qwen2.5:7b-instruct` (decent prose, but verbose) | `gemini` + `gemini-2.5-flash` (excellent prose for free) or `nvidia` + `meta/llama-3.3-70b-instruct` | `anthropic` + `claude-opus-4-7` (best prose quality for client-facing output) or `openai` + `gpt-4o` | small <3B local models — generate hallucinated client names |
+| Score-blending mode (env-controlled) | local → blends LLM score with cosine baseline at weight `LLM_SCORE_BLEND_WEIGHT` (default 0.3) | leave default 0.3 | set `LLM_SCORE_BLEND_WEIGHT=0` to trust the model fully | — |
+| `DASHBOARD_MIN_FIT_SCORE` floor | 30 (small local models are conservative) | 40–50 | 60+ (frontier models calibrate higher) | — |
+
+**Mix-and-match recipes** (all env-only, no code change):
+
+```env
+# Recipe 1 — fully free, fully cloud (recommended for laptops without a strong GPU)
+LLM_PROVIDER=gemini
+GEMINI_API_KEY=AIza...
+EMBEDDING_PROVIDER=nvidia
+NVIDIA_API_KEY=nvapi-...
+# Why: Gemini has the cleanest free-tier structured-output + capability prose;
+# NVIDIA's bge-m3 returns 1024-dim natively so no pgvector migration needed.
+
+# Recipe 2 — local embeddings (fast, free), cloud reasoning (quality)
+LLM_PROVIDER=anthropic
+ANTHROPIC_API_KEY=sk-ant-...
+EMBEDDING_PROVIDER=ollama
+EMBEDDING_MODEL=mxbai-embed-large
+# Why: embeddings are batchy and embarrassingly parallel — local hardware
+# handles them fine. Reasoning is sequential and benefits from a strong model.
+
+# Recipe 3 — all-local development (no API keys at all)
+LLM_PROVIDER=ollama
+LLM_REASONING_MODEL=qwen2.5:7b-instruct
+LLM_FAST_MODEL=qwen2.5:3b-instruct
+EMBEDDING_PROVIDER=ollama
+EMBEDDING_MODEL=mxbai-embed-large
+
+# Recipe 4 — free-cloud reasoning, free-cloud embeddings, single vendor
+LLM_PROVIDER=gemini
+GEMINI_API_KEY=AIza...
+EMBEDDING_PROVIDER=gemini
+EMBEDDING_MODEL=gemini-embedding-001
+EMBEDDING_DIM=1024   # MRL-truncated; no migration needed
+```
 
 #### Local-first (Ollama) — recommended for dev
 
@@ -136,7 +222,32 @@ The doctor pings the configured providers, confirms required models are pulled, 
 
 Set `LLM_PROVIDER=lmstudio`, `EMBEDDING_PROVIDER=lmstudio`, load equivalent models in LM Studio's UI, start its local server on `:1234`. Same `pnpm llm:doctor` confirms it.
 
-#### Cloud production
+#### Free cloud — Google Gemini
+
+The Gemini API has a free tier (≈10 requests/min, 250 requests/day on `gemini-2.5-flash` as of mid-2026 — generous for ingest). Get a key at <https://aistudio.google.com/apikey>, then:
+
+```env
+LLM_PROVIDER=gemini
+GEMINI_API_KEY=AIza...
+# defaults: gemini-2.5-flash for both tiers — override with LLM_REASONING_MODEL=gemini-2.5-pro
+EMBEDDING_PROVIDER=gemini
+# gemini-embedding-001 supports MRL truncation, so the `dimensions` field
+# returns vectors that fit the existing 1024-dim pgvector column.
+```
+
+#### Free cloud — NVIDIA NIM
+
+NVIDIA hosts a free OpenAI-compatible gateway at `integrate.api.nvidia.com/v1` covering Llama 3.3 70B, Llama 3.1 8B, BGE-M3 embeddings, and more. Pick a model at <https://build.nvidia.com/explore/discover>, click "Get API Key", then:
+
+```env
+LLM_PROVIDER=nvidia
+NVIDIA_API_KEY=nvapi-...
+# defaults: meta/llama-3.3-70b-instruct (reasoning) + meta/llama-3.1-8b-instruct (fast)
+EMBEDDING_PROVIDER=nvidia
+# baai/bge-m3 returns 1024-dim natively — no pgvector migration needed.
+```
+
+#### Paid cloud production
 
 Flip env vars at deploy time — no code changes:
 
@@ -246,7 +357,7 @@ That's it — the app is fully running. Visit `http://localhost:3000`, sign up a
 The cron worker takes up to 6 h to do its first ingest. To see results immediately on a fresh DB, force one full pass:
 
 ```bash
-pnpm worker:ingest          # pulls ~1500 tenders from 5 sources (~30 s)
+pnpm worker:ingest          # pulls fresh tenders from all 12 active sources (~30–90 s)
 
 # match worker takes 100 tenders/phase; drain the queue:
 for i in {1..18}; do pnpm worker:match; done
@@ -373,11 +484,11 @@ Each agent left a `*AGENT_NOTES.md` / `FRONTEND_NOTES.md` in its package summari
 
 This is an MVP that proves the architecture and the matching loop end-to-end:
 
-- ✅ 5 sources actively ingest live tenders (1,765 tenders in the dev DB at last verified run)
-- ✅ Local LLM stack scores fit + gaps + win-prob, structured-output verified with qwen2.5:7b
+- ✅ 12 sources actively ingest live tenders; 14 more registered-but-disabled with documented reasons (Cloudflare, paywalls, geofences). Live PDA scrape uses a scoped TLS-relaxation for that one host (incomplete cert chain). PC.gov.pk scraper rewritten to walk tender table rows only (no footer false positives).
+- ✅ Local LLM stack scores fit + gaps + win-prob + HR estimate as a single structured-output call; verified with qwen2.5:7b
 - ✅ Capability statement generation works end-to-end against local models
-- ✅ Persistent embedding cache + provider-aware scoring
-- ✅ Cloud providers (Anthropic / OpenAI / Voyage) drop in via env-var swap
+- ✅ Persistent embedding cache + provider-aware score blending
+- ✅ Seven LLM provider backends drop in via env-var swap: Ollama, LM Studio, OpenAI, Anthropic, Voyage, **Google Gemini** (free tier), **NVIDIA NIM** (free dev tier)
 
 Not yet production: no real auth (single-user-per-tenant stub), no rate-limit handling beyond polite scraping, no payment, no live FX feed (static fallback rates), TED EU adapter awaiting BT-code rewrite. Outstanding items are grep-able as `TODO(lead):` markers across the tree.
 

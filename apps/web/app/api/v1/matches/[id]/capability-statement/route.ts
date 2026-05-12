@@ -39,6 +39,7 @@ export const POST = apiHandler<Ctx>(async (_req, { params }) => {
     gaps: Array.isArray(match.gaps) ? (match.gaps as any) : [],
     winProbability: match.winProbability,
     winProbabilityReason: match.winProbabilityReason,
+    humanResourcesEstimate: match.humanResourcesEstimate as any,
     modelVersion: match.modelVersion,
   });
 

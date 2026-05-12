@@ -1,4 +1,4 @@
-import type { HttpJsonOpts } from "../types";
+import type { HttpJsonOpts } from "../types.ts";
 
 const USER_AGENT = "ProjectBeta/0.1 (+contact@example.com)";
 const DEFAULT_TIMEOUT_MS = 30_000;

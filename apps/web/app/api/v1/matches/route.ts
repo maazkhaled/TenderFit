@@ -2,12 +2,23 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { apiHandler, requireSession } from "@/lib/api";
 import { listMatchesForTenant } from "@/lib/services/matches";
+import { TenderSourceSchema } from "@beta/shared";
 
 const QuerySchema = z.object({
   from: z.coerce.date().optional(),
   to: z.coerce.date().optional(),
   minScore: z.coerce.number().int().min(0).max(100).default(0),
+  sourceFilter: z.coerce.boolean().default(false),
+  sources: z.array(TenderSourceSchema).default([]),
 });
+
+function readSources(url: URL) {
+  return url.searchParams
+    .getAll("sources")
+    .flatMap((value) => value.split(","))
+    .map((source) => source.trim())
+    .filter(Boolean);
+}
 
 export const GET = apiHandler(async (req) => {
   const { tenantId } = await requireSession();
@@ -16,6 +27,8 @@ export const GET = apiHandler(async (req) => {
     from: url.searchParams.get("from") ?? undefined,
     to: url.searchParams.get("to") ?? undefined,
     minScore: url.searchParams.get("minScore") ?? undefined,
+    sourceFilter: url.searchParams.get("sourceFilter") ?? undefined,
+    sources: readSources(url),
   });
   const matches = await listMatchesForTenant({ tenantId, ...parsed });
   return NextResponse.json({ matches });

@@ -19,6 +19,7 @@ export function parseRss(xml: string): RssItem[] {
   const parsed = parser.parse(xml) as Record<string, unknown>;
   const channel =
     (parsed?.rss as Record<string, unknown> | undefined)?.channel ??
+    (parsed?.["rdf:RDF"] as Record<string, unknown> | undefined) ??
     (parsed?.feed as Record<string, unknown> | undefined) ??
     {};
   const rawItems =

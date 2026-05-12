@@ -28,6 +28,13 @@ export interface EmbeddingProviderConfig {
 const DEFAULT_OLLAMA = "http://localhost:11434";
 const DEFAULT_LMSTUDIO = "http://localhost:1234/v1";
 const DEFAULT_OPENAI = "https://api.openai.com/v1";
+// Gemini exposes an OpenAI-compatible surface at /v1beta/openai which accepts
+// /chat/completions and /embeddings exactly like OpenAI proper. We hit that
+// instead of native :generateContent so structured-output and streaming behave
+// the same as every other OAI-compat backend.
+const DEFAULT_GEMINI = "https://generativelanguage.googleapis.com/v1beta/openai";
+// NVIDIA's hosted NIM gateway is fully OpenAI-compatible at /v1.
+const DEFAULT_NVIDIA = "https://integrate.api.nvidia.com/v1";
 
 function envStr(name: string, fallback?: string): string | null {
   const v = process.env[name];
@@ -49,11 +56,15 @@ function asProviderName(v: string | null, fallback: ProviderName): ProviderName 
     v === "lmstudio" ||
     v === "openai" ||
     v === "anthropic" ||
-    v === "voyage"
+    v === "voyage" ||
+    v === "gemini" ||
+    v === "nvidia"
   ) {
     return v;
   }
-  throw new Error(`Unknown provider "${v}". Valid: ollama|lmstudio|openai|anthropic|voyage`);
+  throw new Error(
+    `Unknown provider "${v}". Valid: ollama|lmstudio|openai|anthropic|voyage|gemini|nvidia`,
+  );
 }
 
 export function readChatConfig(): ChatProviderConfig {
@@ -103,8 +114,34 @@ export function readChatConfig(): ChatProviderConfig {
     }
     case "voyage": {
       throw new Error(
-        "voyage cannot be used as a chat provider; set LLM_PROVIDER to ollama|lmstudio|openai|anthropic",
+        "voyage cannot be used as a chat provider; set LLM_PROVIDER to ollama|lmstudio|openai|anthropic|gemini|nvidia",
       );
+    }
+    case "gemini": {
+      // Free-tier defaults: gemini-2.5-flash is the only free chat model and
+      // is plenty capable for tender scoring. Pro can be enabled by setting
+      // LLM_REASONING_MODEL=gemini-2.5-pro (paid tier required).
+      return {
+        provider,
+        reasoningModel: envStr("LLM_REASONING_MODEL", "gemini-2.5-flash")!,
+        fastModel: envStr("LLM_FAST_MODEL", "gemini-2.5-flash")!,
+        baseUrl: envStr("GEMINI_BASE_URL", DEFAULT_GEMINI)!,
+        apiKey: envStr("GEMINI_API_KEY"),
+        timeoutMs,
+      };
+    }
+    case "nvidia": {
+      // build.nvidia.com NIMs are free for low-volume dev usage. The default
+      // pair below is documented as "always free for development" — swap to
+      // e.g. nvidia/llama-3.3-nemotron-super-49b-v1 if you need stronger reasoning.
+      return {
+        provider,
+        reasoningModel: envStr("LLM_REASONING_MODEL", "meta/llama-3.3-70b-instruct")!,
+        fastModel: envStr("LLM_FAST_MODEL", "meta/llama-3.1-8b-instruct")!,
+        baseUrl: envStr("NVIDIA_BASE_URL", DEFAULT_NVIDIA)!,
+        apiKey: envStr("NVIDIA_API_KEY"),
+        timeoutMs,
+      };
     }
   }
 }
@@ -153,8 +190,32 @@ export function readEmbeddingConfig(): EmbeddingProviderConfig {
       };
     case "anthropic":
       throw new Error(
-        "anthropic does not provide embeddings; set EMBEDDING_PROVIDER to ollama|lmstudio|openai|voyage",
+        "anthropic does not provide embeddings; set EMBEDDING_PROVIDER to ollama|lmstudio|openai|voyage|gemini|nvidia",
       );
+    case "gemini":
+      // gemini-embedding-001 returns 3072-dim by default but supports MRL
+      // truncation: passing `dimensions` in the request (we already do for
+      // OpenAI) lets you fit any pgvector column up to 3072. If you change
+      // EMBEDDING_DIM you must also rerun the pgvector migration.
+      return {
+        provider,
+        model: envStr("EMBEDDING_MODEL", "gemini-embedding-001")!,
+        dim,
+        baseUrl: envStr("GEMINI_BASE_URL", DEFAULT_GEMINI)!,
+        apiKey: envStr("GEMINI_API_KEY"),
+        timeoutMs,
+      };
+    case "nvidia":
+      // baai/bge-m3 returns 1024-dim natively → matches the default pgvector
+      // column without a migration. nvidia/nv-embedqa-e5-v5 also works (1024).
+      return {
+        provider,
+        model: envStr("EMBEDDING_MODEL", "baai/bge-m3")!,
+        dim,
+        baseUrl: envStr("NVIDIA_BASE_URL", DEFAULT_NVIDIA)!,
+        apiKey: envStr("NVIDIA_API_KEY"),
+        timeoutMs,
+      };
   }
 }
 

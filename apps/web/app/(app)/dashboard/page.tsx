@@ -1,7 +1,9 @@
 import { Inbox, TrendingUp, Trophy } from "lucide-react";
+import { TENDER_SOURCE_CATALOG, TenderSourceSchema, type TenderSourceId } from "@beta/shared";
 import { apiGetSafe } from "@/lib/ui/fetch-server";
 import { Card, CardBody } from "@/components/ui/Card";
 import { MatchCard, type MatchCardData } from "@/components/domain/MatchCard";
+import { SourceFilter } from "@/components/domain/SourceFilter";
 
 export const dynamic = "force-dynamic";
 
@@ -33,10 +35,40 @@ const DEFAULT_MIN = Number.parseInt(
   10,
 );
 
-export default async function DashboardPage() {
+function parseSourceSelection(value: string | string[] | undefined): TenderSourceId[] {
+  const raw = Array.isArray(value) ? value.join(",") : value ?? "";
+  const seen = new Set<TenderSourceId>();
+  return raw
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .map((s) => TenderSourceSchema.safeParse(s))
+    .filter((r): r is { success: true; data: TenderSourceId } => r.success)
+    .map((r) => r.data)
+    .filter((source) => {
+      if (seen.has(source)) return false;
+      seen.add(source);
+      return true;
+    });
+}
+
+export default async function DashboardPage({
+  searchParams,
+}: {
+  searchParams?: { sources?: string | string[]; sourceFilter?: string };
+}) {
   const minScore = Number.isFinite(DEFAULT_MIN) ? DEFAULT_MIN : 30;
+  const sourceFilterApplied = searchParams?.sourceFilter === "1" || searchParams?.sources !== undefined;
+  const selectedSources = sourceFilterApplied
+    ? parseSourceSelection(searchParams?.sources)
+    : TENDER_SOURCE_CATALOG.map((source) => source.id);
+  const apiParams = new URLSearchParams({ minScore: String(minScore) });
+  if (sourceFilterApplied) {
+    apiParams.set("sourceFilter", "1");
+    for (const source of selectedSources) apiParams.append("sources", source);
+  }
   const data = await apiGetSafe<MatchesResponse>(
-    `/api/v1/matches?minScore=${minScore}`,
+    `/api/v1/matches?${apiParams.toString()}`,
   );
   const matches = data?.matches ?? [];
 
@@ -54,6 +86,12 @@ export default async function DashboardPage() {
           Tenders matched against your capability profile, fit-score {minScore}+.
         </p>
       </header>
+
+      <SourceFilter
+        filterApplied={sourceFilterApplied}
+        selectedSources={selectedSources}
+        sources={TENDER_SOURCE_CATALOG}
+      />
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         <StatCard

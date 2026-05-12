@@ -1,5 +1,5 @@
 import type { IngestRunSummary } from "@beta/shared";
-import type { IngestAdapter, RunAdapterOpts } from "./types";
+import type { IngestAdapter, RunAdapterOpts } from "./types.ts";
 
 const DEFAULT_MAX_PAGES = 5;
 

@@ -1,5 +1,5 @@
 import Link from "next/link";
-import type { WinProbability } from "@beta/shared";
+import type { HumanResourcesEstimate, WinProbability } from "@beta/shared";
 import { Card, CardBody } from "@/components/ui/Card";
 import { CountryFlag } from "./CountryFlag";
 import { FitScore } from "./FitScore";
@@ -9,6 +9,7 @@ export interface MatchCardData {
   id: string;
   fitScore: number;
   winProbability: WinProbability;
+  humanResourcesEstimate?: HumanResourcesEstimate | null;
   tender: {
     title: string;
     buyer: string;
@@ -34,6 +35,7 @@ function formatDeadline(deadline: string | Date | null) {
 }
 
 export function MatchCard({ match }: { match: MatchCardData }) {
+  const minimumPeople = match.humanResourcesEstimate?.minimumPeople;
   return (
     <Link
       href={`/matches/${match.id}`}
@@ -53,6 +55,11 @@ export function MatchCard({ match }: { match: MatchCardData }) {
             </h3>
             <div className="mt-3 flex flex-wrap items-center gap-2">
               <WinProbBadge value={match.winProbability} />
+              {typeof minimumPeople === "number" ? (
+                <span className="text-xs text-zinc-500">
+                  Min HR: {minimumPeople}
+                </span>
+              ) : null}
               <span className="text-xs text-zinc-500">
                 {formatDeadline(match.tender.deadlineAt)}
               </span>

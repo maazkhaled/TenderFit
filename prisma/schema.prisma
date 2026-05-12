@@ -30,15 +30,20 @@ model Tenant {
   feedback MatchFeedback[]
 }
 
+// One row per (email, tenant) pair — lets one stub-auth email own multiple
+// tenants and switch between them. The session's `userEmail` is stable;
+// `activeTenantId` is what the rest of the app sees as the current tenant.
 model User {
   id        String   @id @default(cuid())
   tenantId  String
-  email     String   @unique
+  email     String
   name      String?
   createdAt DateTime @default(now())
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
+  @@unique([email, tenantId])
+  @@index([email])
   @@index([tenantId])
 }
 
@@ -85,6 +90,27 @@ enum TenderSource {
   ungm
   world_bank
   ppra_pk
+  eprocure_pk
+  ppra_punjab
+  kppra
+  ppra_sindh
+  bppra_balochistan
+  pda_pk
+  nitb_pk
+  pseb_pk
+  nadra_pk
+  planning_commission_pk
+  urban_unit_pk
+  sop_pk
+  ppwd_pk
+  pitb_pk
+  ignite_pk
+  adb
+  undp
+  etimad_sa
+  kuwait_capt
+  kuwait_egov_ctc
+  kuwait_cbk
   uk_find_a_tender
   uk_contracts_finder
 }
@@ -137,6 +163,7 @@ model MatchResult {
   gaps                 Json           @default("[]")
   winProbability       WinProbability
   winProbabilityReason String
+  humanResourcesEstimate Json         @default("{}")
   capabilityStatement  String?        // generated on-demand
   modelVersion         String
   createdAt            DateTime       @default(now())

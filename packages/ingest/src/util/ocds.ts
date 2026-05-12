@@ -10,7 +10,7 @@
 
 import { NormalizedTenderSchema, type NormalizedTender } from "@beta/shared";
 import type { TenderSourceId } from "@beta/shared";
-import { toUsd } from "./usd";
+import { toUsd } from "./usd.ts";
 
 export interface OcdsRelease {
   ocid?: string;

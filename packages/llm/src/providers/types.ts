@@ -65,7 +65,9 @@ export type ProviderName =
   | "lmstudio"
   | "openai"
   | "anthropic"
-  | "voyage";
+  | "voyage"
+  | "gemini"
+  | "nvidia";
 
 export class ProviderError extends Error {
   constructor(

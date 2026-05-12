@@ -27,6 +27,56 @@ export interface FetchHtmlOpts {
   headers?: Record<string, string>;
   /** Override the per-host minimum interval. Don't reduce below 1000ms. */
   minIntervalMs?: number;
+  /**
+   * Opt-in: allow TLS connections to this host even if the server presents
+   * an incomplete certificate chain. Use ONLY for known public sites whose
+   * intermediate certs are missing — never for anything carrying secrets.
+   * Set per-adapter, not globally.
+   */
+  insecureTls?: boolean;
+}
+
+/**
+ * Pull a URL using Node's built-in https module with `rejectUnauthorized:false`.
+ * Used only when opts.insecureTls is set (e.g. pda.gov.pk, which omits the
+ * intermediate cert). Avoids adding a runtime undici dependency.
+ */
+async function fetchHtmlInsecure(
+  url: string,
+  headers: Record<string, string>,
+  timeoutMs: number,
+): Promise<{ status: number; statusText: string; body: string }> {
+  const https = await import("node:https");
+  const { URL: NodeURL } = await import("node:url");
+  const u = new NodeURL(url);
+  return new Promise((resolve, reject) => {
+    const req = https.request(
+      {
+        method: "GET",
+        host: u.hostname,
+        port: u.port ? Number.parseInt(u.port, 10) : 443,
+        path: `${u.pathname}${u.search}`,
+        headers,
+        rejectUnauthorized: false,
+        timeout: timeoutMs,
+      },
+      (res) => {
+        const chunks: Buffer[] = [];
+        res.on("data", (c: Buffer) => chunks.push(c));
+        res.on("end", () => {
+          resolve({
+            status: res.statusCode ?? 0,
+            statusText: res.statusMessage ?? "",
+            body: Buffer.concat(chunks).toString("utf8"),
+          });
+        });
+        res.on("error", reject);
+      },
+    );
+    req.on("error", reject);
+    req.on("timeout", () => req.destroy(new Error("timeout")));
+    req.end();
+  });
 }
 
 export async function fetchHtml(url: string, opts: FetchHtmlOpts = {}): Promise<string> {
@@ -45,12 +95,25 @@ export async function fetchHtml(url: string, opts: FetchHtmlOpts = {}): Promise<
     ...opts.headers,
   };
 
+  const timeoutMs = opts.timeoutMs ?? 30_000;
+
   let lastErr: unknown = null;
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
+      if (opts.insecureTls) {
+        const r = await fetchHtmlInsecure(url, headers, timeoutMs);
+        if (r.status === 429 || r.status >= 500) {
+          await sleep(2_000 * (attempt + 1));
+          continue;
+        }
+        if (r.status < 200 || r.status >= 300) {
+          throw new Error(`fetchHtml ${url} -> ${r.status} ${r.statusText}`);
+        }
+        return r.body;
+      }
       const res = await fetch(url, {
         headers,
-        signal: AbortSignal.timeout(opts.timeoutMs ?? 30_000),
+        signal: AbortSignal.timeout(timeoutMs),
       });
       if (res.status === 429 || res.status >= 500) {
         await sleep(2_000 * (attempt + 1));

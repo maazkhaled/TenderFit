@@ -1,8 +1,8 @@
 // source: https://ted.europa.eu/en/release-notes/api-v3 (TED Search API v3)
 import { NormalizedTenderSchema, type NormalizedTender } from "@beta/shared";
-import type { IngestAdapter } from "../types";
-import { httpJson as defaultHttpJson } from "../util/http";
-import { toUsd } from "../util/usd";
+import type { IngestAdapter } from "../types.ts";
+import { httpJson as defaultHttpJson } from "../util/http.ts";
+import { toUsd } from "../util/usd.ts";
 
 const ENDPOINT = "https://api.ted.europa.eu/v3/notices/search";
 const PAGE_LIMIT = 100;

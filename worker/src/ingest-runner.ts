@@ -11,9 +11,29 @@ import type {
   NormalizedTender,
   TenderSourceId,
 } from "@beta/shared";
+import { TenderSourceSchema } from "@beta/shared";
 
 const FOURTEEN_DAYS_MS = 14 * 24 * 60 * 60 * 1000;
 const MAX_PAGES = 5;
+
+function readSourceFilter(): TenderSourceId[] | null {
+  const raw = process.env.INGEST_SOURCES?.trim();
+  if (!raw) return null;
+  const sources = raw
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const parsed: TenderSourceId[] = [];
+  for (const source of sources) {
+    const result = TenderSourceSchema.safeParse(source);
+    if (result.success) {
+      parsed.push(result.data);
+    } else {
+      console.warn(`[ingest] ignoring unknown INGEST_SOURCES value: ${source}`);
+    }
+  }
+  return parsed.length > 0 ? parsed : null;
+}
 
 function checkRequiredEnv(adapter: IngestAdapter): string[] {
   return adapter.requiredEnv.filter((name) => !process.env[name]);
@@ -131,7 +151,8 @@ function printSummaryTable(summaries: IngestRunSummary[]): void {
 
 export async function runIngest(): Promise<IngestRunSummary[]> {
   const summaries: IngestRunSummary[] = [];
-  const sources = Object.keys(adapters) as TenderSourceId[];
+  const sourceFilter = readSourceFilter();
+  const sources = sourceFilter ?? (Object.keys(adapters) as TenderSourceId[]);
 
   for (const source of sources) {
     const adapter = adapters[source];

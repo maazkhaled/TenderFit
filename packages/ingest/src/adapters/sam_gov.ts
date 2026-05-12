@@ -1,8 +1,8 @@
 // source: https://open.gsa.gov/api/get-opportunities-public-api/
 import { NormalizedTenderSchema, type NormalizedTender } from "@beta/shared";
-import type { IngestAdapter } from "../types";
-import { httpJson as defaultHttpJson } from "../util/http";
-import { toUsd } from "../util/usd";
+import type { IngestAdapter } from "../types.ts";
+import { httpJson as defaultHttpJson } from "../util/http.ts";
+import { toUsd } from "../util/usd.ts";
 
 const ENDPOINT = "https://api.sam.gov/opportunities/v2/search";
 const PAGE_LIMIT = 100;

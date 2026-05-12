@@ -36,6 +36,12 @@ export function getChatProvider(): ChatProvider {
       break;
     case "voyage":
       throw new Error("voyage cannot be used as a chat provider");
+    case "gemini":
+      _chat = new OpenAICompatChatProvider(cfg, "gemini");
+      break;
+    case "nvidia":
+      _chat = new OpenAICompatChatProvider(cfg, "nvidia");
+      break;
   }
   return _chat;
 }
@@ -58,6 +64,12 @@ export function getEmbeddingProvider(): EmbeddingProvider {
       break;
     case "anthropic":
       throw new Error("anthropic does not provide embeddings");
+    case "gemini":
+      _embed = new OpenAICompatEmbeddingProvider(cfg, "gemini");
+      break;
+    case "nvidia":
+      _embed = new OpenAICompatEmbeddingProvider(cfg, "nvidia");
+      break;
   }
   return _embed;
 }

@@ -1,9 +1,9 @@
 // source: https://www.find-tender.service.gov.uk/apidocumentation
 // Free, no API key. Returns OCDS-format release packages. UK higher-value
 // procurement (above thresholds — pre-Brexit equivalent of TED EU notices).
-import type { IngestAdapter } from "../types";
-import { httpJson as defaultHttpJson } from "../util/http";
-import { ocdsReleasesToTenders, type OcdsReleasePackage } from "../util/ocds";
+import type { IngestAdapter } from "../types.ts";
+import { httpJson as defaultHttpJson } from "../util/http.ts";
+import { ocdsReleasesToTenders, type OcdsReleasePackage } from "../util/ocds.ts";
 
 const ENDPOINT = "https://www.find-tender.service.gov.uk/api/1.0/ocdsReleasePackages";
 const PAGE_LIMIT = 100;

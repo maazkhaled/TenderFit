@@ -198,8 +198,20 @@ export class OpenAICompatEmbeddingProvider implements EmbeddingProvider {
       );
       if (!res.ok) return { ok: false, detail: `${res.status} ${res.statusText}` };
       const json = (await res.json()) as OAIModelsResponse;
-      const has = (json.data ?? []).some((m) => m.id === this.cfg.model);
+      const has = (json.data ?? []).some(
+        (m) => m.id === this.cfg.model || m.id === `models/${this.cfg.model}`,
+      );
+      // NVIDIA/Gemini /models endpoints don't always list every embedding
+      // model id under the same string they accept in requests; if the
+      // server is reachable and returned a non-empty list, treat that as OK
+      // and let the live embed call surface model errors instead.
       if (!has) {
+        if (this.name === "gemini" || this.name === "nvidia") {
+          return {
+            ok: true,
+            detail: `${this.cfg.baseUrl} reachable; model "${this.cfg.model}" not in /models list (NVIDIA/Gemini routinely omit embedding models from /models — will be validated live).`,
+          };
+        }
         return {
           ok: false,
           detail: `reachable but embedding model "${this.cfg.model}" not in /models. Load it in your provider first.`,
@@ -213,14 +225,16 @@ export class OpenAICompatEmbeddingProvider implements EmbeddingProvider {
 
   async embed(texts: string[]): Promise<number[][]> {
     if (texts.length === 0) return [];
-    // Some OpenAI-compat servers (notably text-embedding-3-*) accept a
-    // `dimensions` field to truncate to a fixed size. Pass it for OpenAI;
-    // LM Studio ignores unknown fields.
+    // Some OpenAI-compat servers accept a `dimensions` field to truncate the
+    // returned vector via Matryoshka representation learning. OpenAI's
+    // text-embedding-3-* and Gemini's gemini-embedding-001 both support it,
+    // which is how the user can keep using their existing pgvector column
+    // dimension without re-running the migration.
     const body: Record<string, unknown> = {
       model: this.cfg.model,
       input: texts,
     };
-    if (this.name === "openai") {
+    if (this.name === "openai" || this.name === "gemini") {
       body.dimensions = this.cfg.dim;
     }
     const res = await fetchWithTimeout(

@@ -33,6 +33,8 @@ export {
   type SimilarHistoricalWin,
 } from "./winprob";
 export { generateCapabilityStatement } from "./capability-statement";
+export { parseProfileFromText } from "./parse-profile";
+export type { ParseProfileOptions } from "./parse-profile";
 export { cosineSimilarity } from "./util/cosine";
 export { renderProfileForLLM, renderTenderForLLM } from "./util/render";
 export { embeddingCache } from "./util/embed-cache";

@@ -1,8 +1,8 @@
 // source: https://search.worldbank.org/api/v2/procnotices (World Bank Procurement Notices)
 import { NormalizedTenderSchema, type NormalizedTender } from "@beta/shared";
-import type { IngestAdapter } from "../types";
-import { httpJson as defaultHttpJson } from "../util/http";
-import { toUsd } from "../util/usd";
+import type { IngestAdapter } from "../types.ts";
+import { httpJson as defaultHttpJson } from "../util/http.ts";
+import { toUsd } from "../util/usd.ts";
 
 const ENDPOINT = "https://search.worldbank.org/api/v2/procnotices";
 const PAGE_LIMIT = 100;

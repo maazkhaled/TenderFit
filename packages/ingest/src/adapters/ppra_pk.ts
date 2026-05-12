@@ -13,8 +13,8 @@
 //   - Robots.txt is empty (no Disallow rules) on epms.ppra.gov.pk.
 
 import { NormalizedTenderSchema, type NormalizedTender } from "@beta/shared";
-import type { IngestAdapter } from "../types";
-import { fetchHtml, decodeEntities, stripTags } from "../util/html-scrape";
+import type { IngestAdapter } from "../types.ts";
+import { fetchHtml, decodeEntities, stripTags } from "../util/html-scrape.ts";
 
 const BASE = "https://epms.ppra.gov.pk";
 const LISTING = `${BASE}/public/tenders/active-tenders`;

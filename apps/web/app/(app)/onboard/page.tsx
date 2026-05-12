@@ -9,6 +9,7 @@ import { Input, Field } from "@/components/ui/Input";
 import { Textarea } from "@/components/ui/Textarea";
 import { TagInput } from "@/components/forms/TagInput";
 import { RepeatableSection } from "@/components/forms/RepeatableSection";
+import { DocumentImport } from "@/components/forms/DocumentImport";
 import { COMMON_COUNTRIES, flagFor } from "@/lib/ui/countries";
 import { cn } from "@/lib/ui/cn";
 
@@ -96,6 +97,29 @@ export default function OnboardPage() {
     );
   }
 
+  function applyImportedProfile(p: CapabilityProfileInput) {
+    setCompanyName(p.companyName);
+    setOneLiner(p.oneLiner);
+    setIndustries(p.industries);
+    setServices(p.services);
+    setTechStack(p.techStack);
+    setCertifications(p.certifications);
+    setPastClients(p.pastClients);
+    setGeographies(p.geographies);
+    setTeamSize(String(p.teamSize ?? 0));
+    setBudgetMin(String(p.budgetRangeUsd?.min ?? 0));
+    setBudgetMax(String(p.budgetRangeUsd?.max ?? 0));
+    setLanguages(p.languages.length ? p.languages : ["en"]);
+    setPastProjects(
+      (p.pastProjects ?? []).map((proj) => ({
+        title: proj.title,
+        summary: proj.summary,
+        sector: proj.sector ?? "",
+        valueUsd: proj.valueUsd != null ? String(proj.valueUsd) : "",
+      })),
+    );
+  }
+
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
@@ -125,11 +149,13 @@ export default function OnboardPage() {
   return (
     <form onSubmit={onSubmit} className="space-y-8">
       <header className="space-y-2">
-        <h1 className="text-3xl font-semibold tracking-tight">Capability profile</h1>
+        <h1 className="text-3xl font-semibold tracking-tight">Create your first profile</h1>
         <p className="max-w-2xl text-sm text-zinc-600">
-          Describe what your company does, where, and at what scale. The matcher uses this to score tenders and surface gaps. You can edit it later.
+          Describe what your company does, where, and at what scale. The matcher uses this to score tenders and surface gaps. You can edit it later — or add additional company profiles from the profile switcher.
         </p>
       </header>
+
+      <DocumentImport onParsed={applyImportedProfile} />
 
       <Card>
         <CardHeader>

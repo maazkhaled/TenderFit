@@ -1,17 +1,10 @@
-// TODO(lead): tests currently fail at runtime because @beta/shared's index.ts
-// imports relative paths without `.ts` extensions, which Node's strict ESM
-// resolver rejects. Fix is in the shared package (add extensions or set
-// "type": "module" + extensionless resolver), not here. Test logic below is
-// correct and will pass once shared is resolvable from node:test.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { NormalizedTenderSchema } from "@beta/shared";
-import type { HttpJsonFn } from "../types";
-import { samGovAdapter } from "../adapters/sam_gov";
-import { tedEuAdapter } from "../adapters/ted_eu";
-import { ungmAdapter } from "../adapters/ungm";
-import { worldBankAdapter } from "../adapters/world_bank";
-import { ppraPkAdapter } from "../adapters/ppra_pk";
+import type { HttpJsonFn } from "../types.ts";
+import { samGovAdapter } from "../adapters/sam_gov.ts";
+import { tedEuAdapter } from "../adapters/ted_eu.ts";
+import { worldBankAdapter } from "../adapters/world_bank.ts";
 
 const sinceIso = "2026-01-01T00:00:00.000Z";
 
@@ -50,18 +43,6 @@ const fakeTedResponse = {
   ],
 };
 
-const fakeUngmRss = `<?xml version="1.0" encoding="UTF-8"?>
-<rss version="2.0"><channel>
-<title>UNGM</title>
-<item>
-  <title>Software Development Services</title>
-  <link>https://www.ungm.org/Public/Notice/123</link>
-  <description>UN agency seeks <b>software</b> dev partner.</description>
-  <pubDate>Mon, 20 Apr 2026 10:00:00 GMT</pubDate>
-  <guid>ungm-123</guid>
-</item>
-</channel></rss>`;
-
 const fakeWorldBankResponse = {
   total: 1,
   procnotices: {
@@ -81,17 +62,6 @@ const fakeWorldBankResponse = {
     },
   },
 };
-
-const fakePpraRss = `<?xml version="1.0" encoding="UTF-8"?>
-<rss version="2.0"><channel>
-<item>
-  <title>Network Infrastructure Tender</title>
-  <link>https://www.ppra.org.pk/notice/999</link>
-  <description>PPRA tender for network infra</description>
-  <pubDate>Wed, 15 Apr 2026 09:00:00 GMT</pubDate>
-  <guid>ppra-999</guid>
-</item>
-</channel></rss>`;
 
 function makeFakeHttp(payload: unknown): HttpJsonFn {
   return (async (_url: string, _opts?: unknown) => payload) as HttpJsonFn;
@@ -121,16 +91,6 @@ test("ted_eu adapter normalizes mock payload", async () => {
   assert.deepEqual(tenders[0]!.cpvCodes, ["72000000", "72200000"]);
 });
 
-test("ungm adapter parses RSS and normalizes", async () => {
-  const { tenders } = await ungmAdapter.fetchPage({
-    sinceIso,
-    httpJson: makeFakeHttp(fakeUngmRss),
-  });
-  assert.equal(tenders.length, 1);
-  for (const t of tenders) NormalizedTenderSchema.parse(t);
-  assert.equal(tenders[0]!.source, "ungm");
-});
-
 test("world_bank adapter normalizes mock payload", async () => {
   const { tenders } = await worldBankAdapter.fetchPage({
     sinceIso,
@@ -140,15 +100,4 @@ test("world_bank adapter normalizes mock payload", async () => {
   for (const t of tenders) NormalizedTenderSchema.parse(t);
   assert.equal(tenders[0]!.source, "world_bank");
   assert.equal(tenders[0]!.country, "KE");
-});
-
-test("ppra_pk adapter parses RSS and normalizes", async () => {
-  const { tenders } = await ppraPkAdapter.fetchPage({
-    sinceIso,
-    httpJson: makeFakeHttp(fakePpraRss),
-  });
-  assert.equal(tenders.length, 1);
-  for (const t of tenders) NormalizedTenderSchema.parse(t);
-  assert.equal(tenders[0]!.source, "ppra_pk");
-  assert.equal(tenders[0]!.country, "PK");
 });

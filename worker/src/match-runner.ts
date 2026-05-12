@@ -23,6 +23,10 @@ import type {
 
 const MAX_NEW_MATCHES_PER_TENANT = 20;
 const NEAREST_FETCH_LIMIT = 50;
+const SCORE_TIMEOUT_MS = Number.parseInt(
+  process.env.MATCH_SCORE_TIMEOUT_MS ?? "60000",
+  10,
+);
 
 function tenderRowToNormalized(row: any): NormalizedTender {
   return {
@@ -212,13 +216,14 @@ async function matchForTenant(tenant: {
 }): Promise<{ created: number; skipped: number }> {
   let created = 0;
   let skipped = 0;
+  let scoreAttempts = 0;
 
   const profile = profileRowToCapability(tenant.profile, tenant.companyName);
   const nearest = await findNearestTenders(tenant.profile.id, NEAREST_FETCH_LIMIT);
   if (nearest.length === 0) return { created, skipped };
 
   const now = new Date();
-  const tenderIds = nearest.map((n) => n.id);
+  const tenderIds = Array.from(new Set(nearest.map((n) => n.id)));
   const tenderRows = await prisma.tender.findMany({
     where: {
       id: { in: tenderIds },
@@ -235,8 +240,15 @@ async function matchForTenant(tenant: {
 
   const historicalWins = await fetchHistoricalWins(tenant.id);
 
+  const processedIds = new Set<string>();
   for (const { id: tenderId, distance } of nearest) {
     if (created >= MAX_NEW_MATCHES_PER_TENANT) break;
+    if (scoreAttempts >= MAX_NEW_MATCHES_PER_TENANT) break;
+    if (processedIds.has(tenderId)) {
+      skipped += 1;
+      continue;
+    }
+    processedIds.add(tenderId);
     if (existingIds.has(tenderId)) {
       skipped += 1;
       continue;
@@ -251,9 +263,17 @@ async function matchForTenant(tenant: {
     const similarity = Math.max(0, Math.min(1, 1 - distance));
 
     try {
-      const result = await scoreMatch(profile, tender, similarity, {
-        similarHistoricalWins: historicalWins,
-      });
+      scoreAttempts += 1;
+      console.log(
+        `[match] tenant=${tenant.id} scoring ${scoreAttempts}/${MAX_NEW_MATCHES_PER_TENANT} tender=${tenderId} similarity=${similarity.toFixed(4)}`,
+      );
+      const result = await withTimeout(
+        scoreMatch(profile, tender, similarity, {
+          similarHistoricalWins: historicalWins,
+        }),
+        SCORE_TIMEOUT_MS,
+        `score timeout after ${SCORE_TIMEOUT_MS}ms`,
+      );
       await prisma.matchResult.create({
         data: {
           tenantId: tenant.id,
@@ -263,11 +283,18 @@ async function matchForTenant(tenant: {
           gaps: result.gaps as any,
           winProbability: result.winProbability,
           winProbabilityReason: result.winProbabilityReason,
+          humanResourcesEstimate: result.humanResourcesEstimate as any,
           modelVersion: result.modelVersion,
         },
       });
+      existingIds.add(tenderId);
       created += 1;
     } catch (err) {
+      if (isUniqueConstraintError(err)) {
+        existingIds.add(tenderId);
+        skipped += 1;
+        continue;
+      }
       const msg = err instanceof Error ? err.message : String(err);
       console.error(
         `[match] tenant=${tenant.id} tender=${tenderId} score error: ${msg}`,
@@ -276,6 +303,31 @@ async function matchForTenant(tenant: {
   }
 
   return { created, skipped };
+}
+
+async function withTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  message: string,
+): Promise<T> {
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) return promise;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_resolve, reject) => {
+        timer = setTimeout(() => reject(new Error(message)), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+function isUniqueConstraintError(err: unknown): boolean {
+  if (!err || typeof err !== "object") return false;
+  const code = (err as { code?: unknown }).code;
+  return code === "P2002";
 }
 
 export async function runMatch(): Promise<void> {

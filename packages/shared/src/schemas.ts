@@ -1,7 +1,26 @@
 import { z } from "zod";
-import { TENDER_SOURCES, MATCH_RATIONALE_BULLET_COUNT } from "./constants";
+import { TENDER_SOURCES, MATCH_RATIONALE_BULLET_COUNT } from "./constants.ts";
 
 export const TenderSourceSchema = z.enum(TENDER_SOURCES);
+export const TenderSourceCategorySchema = z.enum([
+  "government",
+  "multilateral",
+  "un_agency",
+  "domestic",
+  "it_digital",
+  "planning_data",
+  "international",
+  "gcc",
+]);
+
+export const TenderSourceCatalogEntrySchema = z.object({
+  id: TenderSourceSchema,
+  label: z.string().min(1),
+  category: TenderSourceCategorySchema,
+  url: z.string().url(),
+  checkboxLabel: z.string().min(1),
+  description: z.string().min(1),
+});
 
 export const NormalizedTenderSchema = z.object({
   externalId: z.string().min(1),
@@ -49,6 +68,22 @@ export const CapabilityProfileSchema = z.object({
 
 export const GapSeveritySchema = z.enum(["blocker", "major", "minor"]);
 export const WinProbabilitySchema = z.enum(["low", "medium", "high"]);
+export const HumanResourcesEstimateSchema = z.object({
+  minimumPeople: z.number().int().min(0).max(10_000),
+  confidence: z.enum(["low", "medium", "high"]),
+  basis: z.enum(["explicit", "inferred", "mixed"]),
+  roles: z
+    .array(
+      z.object({
+        role: z.string().min(1),
+        count: z.number().int().min(1).max(10_000),
+        seniority: z.string().min(1).nullable(),
+        rationale: z.string().min(1),
+      }),
+    )
+    .default([]),
+  notes: z.string().min(1),
+});
 
 export const CapabilityGapSchema = z.object({
   requirement: z.string().min(1),
@@ -63,6 +98,7 @@ export const MatchResultSchema = z.object({
   gaps: z.array(CapabilityGapSchema),
   winProbability: WinProbabilitySchema,
   winProbabilityReason: z.string().min(1),
+  humanResourcesEstimate: HumanResourcesEstimateSchema,
   capabilityStatement: z.string().optional(),
   modelVersion: z.string(),
 });

@@ -29,6 +29,22 @@ const ToolInputSchema = z.object({
     .default([]),
   winProbability: z.enum(["low", "medium", "high"]),
   winProbabilityReason: z.string().min(1),
+  humanResourcesEstimate: z.object({
+    minimumPeople: z.number().int().min(0).max(10_000),
+    confidence: z.enum(["low", "medium", "high"]),
+    basis: z.enum(["explicit", "inferred", "mixed"]),
+    roles: z
+      .array(
+        z.object({
+          role: z.string().min(1),
+          count: z.number().int().min(1).max(10_000),
+          seniority: z.string().min(1).nullable(),
+          rationale: z.string().min(1),
+        }),
+      )
+      .default([]),
+    notes: z.string().min(1),
+  }),
   fitScore: z.number().int().min(0).max(100),
 });
 
@@ -44,6 +60,9 @@ Hard rules:
 - Be specific in gaps: name the exact tender requirement that is missing or weak.
 - Severity meanings: "blocker" = cannot bid without it (mandatory cert/clearance/local presence), "major" = significant disadvantage vs typical winner, "minor" = nice-to-have.
 - Rationale is exactly 3 bullets. Each bullet is one specific, grounded reason — no fluff, no marketing tone.
+- Estimate the minimum human resources needed to deliver the tender. Prefer explicit staffing/personnel requirements from the tender. If staffing is not explicit, infer the smallest credible delivery team from scope, SLAs, locations, implementation/support obligations, and domain complexity. Do not inflate for comfort.
+- humanResourcesEstimate.minimumPeople must equal the sum of role counts unless minimumPeople is 0 because the tender has no meaningful service/delivery component.
+- Set humanResourcesEstimate.basis to "explicit" only when the tender states staffing counts/roles; "mixed" when some are explicit and others inferred; "inferred" when staffing is estimated from scope.
 - fitScore is an integer 0-100. The cosine similarity (0..1) is one input. You may override it up or down if the rationale and gaps demand a different score. A tender with blockers should rarely score above 40 even if similarity is high.
 - Return ONLY the structured object. No prose outside the structured fields.`;
 
@@ -88,6 +107,59 @@ const SCHEMA: JsonSchema = {
         "One short sentence justifying the winProbability value, citing the strongest factor.",
       minLength: 1,
     },
+    humanResourcesEstimate: {
+      type: "object",
+      description:
+        "Minimum human resources needed to deliver this tender, based on explicit requirements where available or conservative inference from scope.",
+      properties: {
+        minimumPeople: {
+          type: "integer",
+          minimum: 0,
+          maximum: 10000,
+          description:
+            "Minimum number of distinct people needed. Must equal the sum of role counts unless 0 for no meaningful service/delivery effort.",
+        },
+        confidence: {
+          type: "string",
+          enum: ["low", "medium", "high"],
+          description:
+            "Confidence in the estimate. High only when staffing is explicit or scope is narrow.",
+        },
+        basis: {
+          type: "string",
+          enum: ["explicit", "inferred", "mixed"],
+          description:
+            "Whether the estimate came from explicit tender staffing, inference from scope, or both.",
+        },
+        roles: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              role: { type: "string", minLength: 1 },
+              count: { type: "integer", minimum: 1, maximum: 10000 },
+              seniority: { type: ["string", "null"] },
+              rationale: {
+                type: "string",
+                minLength: 1,
+                description:
+                  "Short reason this role/count is needed, tied to tender text or delivery scope.",
+              },
+            },
+            required: ["role", "count", "seniority", "rationale"],
+            additionalProperties: false,
+          },
+        },
+        notes: {
+          type: "string",
+          minLength: 1,
+          description:
+            "One short caveat, assumption, or explicit tender quote summary for the estimate.",
+        },
+      },
+      required: ["minimumPeople", "confidence", "basis", "roles", "notes"],
+      additionalProperties: false,
+    },
     fitScore: {
       type: "integer",
       description:
@@ -101,6 +173,7 @@ const SCHEMA: JsonSchema = {
     "gaps",
     "winProbability",
     "winProbabilityReason",
+    "humanResourcesEstimate",
     "fitScore",
   ],
   additionalProperties: false,
@@ -219,7 +292,25 @@ function toMatchResult(
     gaps: data.gaps,
     winProbability: data.winProbability,
     winProbabilityReason: data.winProbabilityReason,
+    humanResourcesEstimate: normalizeHumanResourcesEstimate(
+      data.humanResourcesEstimate,
+    ),
     modelVersion: modelVersion(),
+  };
+}
+
+function normalizeHumanResourcesEstimate(
+  estimate: ToolInput["humanResourcesEstimate"],
+): ToolInput["humanResourcesEstimate"] {
+  const roleTotal = estimate.roles.reduce((sum, role) => sum + role.count, 0);
+  if (roleTotal === estimate.minimumPeople) return estimate;
+  return {
+    ...estimate,
+    minimumPeople: roleTotal,
+    notes:
+      roleTotal === 0
+        ? estimate.notes
+        : `${estimate.notes} Minimum team size normalized to the sum of role counts.`,
   };
 }
 
@@ -227,4 +318,5 @@ export const __test__ = {
   ToolInputSchema,
   PROMPT_HASH,
   SCHEMA,
+  normalizeHumanResourcesEstimate,
 };

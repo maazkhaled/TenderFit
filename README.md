@@ -456,15 +456,6 @@ Each `Tender` and `CapabilityProfile` row stores a `(embeddingHash, embeddingMod
 
 Per-tenant digest cadence is configured via the `/schedule` UI and stored on `DigestSchedule` (frequency, hour-of-day, day-of-week, timezone, min fit score).
 
-## Monetisation paths (informal)
-
-The codebase is built so the same product can be sold as:
-
-- **Tiered SaaS** — free / starter (alerts) / pro (matching + bid tools) / enterprise (multi-user, integrations).
-- **Vertical packages** — separate matcher tunings for IT services, cybersecurity firms, AI/ML consultancies.
-- **White-label** — IT industry associations, chambers of commerce, export promotion bodies resell to members.
-- **Bid intelligence add-on** — capability-statement generation, gap-analysis history, market-intel exports.
-
 ## Agent build
 
 This repo was built by a coordinated agent build:
@@ -478,7 +469,6 @@ This repo was built by a coordinated agent build:
 | Frontend | `apps/web/app/(marketing)/`, `apps/web/app/(app)/`, `apps/web/components/`, `apps/web/lib/ui/` |
 | Scheduler | `worker/`, `packages/notifications/`, capability-statement route wiring |
 
-Each agent left a `*AGENT_NOTES.md` / `FRONTEND_NOTES.md` in its package summarising deliverables and TODOs for the lead.
 
 ## Status
 
@@ -494,4 +484,4 @@ Not yet production: no real auth (single-user-per-tenant stub), no rate-limit ha
 
 ## License
 
-UNLICENSED — internal exploration. Confirm a license before any external distribution.
+Proprietary — all rights reserved. Not licensed for external use or distribution.

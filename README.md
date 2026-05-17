@@ -409,7 +409,20 @@ pnpm llm:doctor
 # Expect: all 4 checks green (chat ping, embed ping, live 1024-dim embed, structured-output round-trip)
 ```
 
-### Day-to-day startup (4 shells)
+### Day-to-day startup — one-click launcher
+
+For routine "I just want to open the app" use, double-click the launcher in the project root from Finder / File Explorer:
+
+| OS | File | What it does |
+|---|---|---|
+| macOS | `start.command` | Opens one Terminal window with interleaved `[web]` / `[worker]` output. Auto-starts Postgres via `brew services` and Ollama (skipped if either is already running, or if `LLM_PROVIDER` is set to a cloud backend). Ctrl+C or closing the window stops everything cleanly. |
+| Windows | `start.cmd` | Opens up to three console windows (`ollama`, `web`, `worker`). Close each to stop that piece. Assumes Postgres is running as a Windows service. |
+
+First-time macOS use: if Finder shows "permission denied", run `chmod +x start.command` once from a terminal.
+
+### Day-to-day startup — manual (4 shells)
+
+If you prefer separate windows or need to tail an individual process:
 
 ```bash
 # Shell 1 — Ollama (always-on)

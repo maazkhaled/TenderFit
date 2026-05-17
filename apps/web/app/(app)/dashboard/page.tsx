@@ -1,4 +1,5 @@
-import { Inbox, TrendingUp, Trophy } from "lucide-react";
+import Link from "next/link";
+import { Archive as ArchiveIcon, Inbox, TrendingUp, Trophy } from "lucide-react";
 import { TENDER_SOURCE_CATALOG, TenderSourceSchema, type TenderSourceId } from "@beta/shared";
 import { apiGetSafe } from "@/lib/ui/fetch-server";
 import { Card, CardBody } from "@/components/ui/Card";
@@ -62,15 +63,25 @@ export default async function DashboardPage({
   const selectedSources = sourceFilterApplied
     ? parseSourceSelection(searchParams?.sources)
     : TENDER_SOURCE_CATALOG.map((source) => source.id);
-  const apiParams = new URLSearchParams({ minScore: String(minScore) });
+  // Dashboard lists active tenders only — closed/expired tenders live on /archive.
+  const apiParams = new URLSearchParams({
+    minScore: String(minScore),
+    status: "active",
+  });
   if (sourceFilterApplied) {
     apiParams.set("sourceFilter", "1");
     for (const source of selectedSources) apiParams.append("sources", source);
   }
-  const data = await apiGetSafe<MatchesResponse>(
-    `/api/v1/matches?${apiParams.toString()}`,
-  );
+  const archivedParams = new URLSearchParams({
+    minScore: String(minScore),
+    status: "archived",
+  });
+  const [data, archivedData] = await Promise.all([
+    apiGetSafe<MatchesResponse>(`/api/v1/matches?${apiParams.toString()}`),
+    apiGetSafe<MatchesResponse>(`/api/v1/matches?${archivedParams.toString()}`),
+  ]);
   const matches = data?.matches ?? [];
+  const archivedCount = archivedData?.matches.length ?? 0;
 
   const todayMatches = matches.filter((m) =>
     isToday((m as unknown as { createdAt?: string }).createdAt ?? null),
@@ -115,9 +126,20 @@ export default async function DashboardPage({
         <EmptyState />
       ) : (
         <section className="space-y-3">
-          <h2 className="text-sm font-medium uppercase tracking-wider text-zinc-500">
-            Matches
-          </h2>
+          <div className="flex items-end justify-between">
+            <h2 className="text-sm font-medium uppercase tracking-wider text-zinc-500">
+              Active matches
+            </h2>
+            {archivedCount > 0 ? (
+              <Link
+                href="/archive"
+                className="inline-flex items-center gap-1.5 text-xs text-zinc-500 hover:text-indigo-600"
+              >
+                <ArchiveIcon className="h-3.5 w-3.5" />
+                {archivedCount} archived
+              </Link>
+            ) : null}
+          </div>
           <div className="space-y-3">
             {matches.map((match) => (
               <MatchCard key={match.id} match={match} />

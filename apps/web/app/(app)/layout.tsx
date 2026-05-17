@@ -1,9 +1,16 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { LayoutDashboard, UserCog, CalendarClock, Sparkles } from "lucide-react";
+import {
+  Archive,
+  CalendarClock,
+  LayoutDashboard,
+  Sparkles,
+  UserCog,
+} from "lucide-react";
 
 const NAV = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/archive", label: "Archive", icon: Archive },
   { href: "/profile", label: "Profile", icon: UserCog },
   { href: "/schedule", label: "Schedule", icon: CalendarClock },
 ];

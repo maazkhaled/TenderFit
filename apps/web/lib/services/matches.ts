@@ -1,6 +1,17 @@
 import { prisma } from "../db";
 import type { TenderSourceId } from "@beta/shared";
 
+/**
+ * `active`   — tender deadline is null OR in the future (default for /dashboard)
+ * `archived` — tender deadline is in the past (default for /archive)
+ * `all`      — no expiry filter at all
+ *
+ * We filter on tender.deadlineAt rather than archiving the MatchResult itself,
+ * so a tender that gets a new deadline upstream automatically moves back to
+ * the active list without any worker run.
+ */
+export type MatchListStatus = "active" | "archived" | "all";
+
 export type MatchListParams = {
   tenantId: string;
   from?: Date;
@@ -8,21 +19,58 @@ export type MatchListParams = {
   minScore?: number;
   sources?: TenderSourceId[];
   sourceFilter?: boolean;
+  /** Defaults to "active" — dashboards should never accidentally show closed tenders. */
+  status?: MatchListStatus;
 };
 
+/**
+ * Build the `tender: { ... }` relation filter from a status + optional source list.
+ * Factored out so list and count helpers stay in lockstep.
+ */
+function buildTenderFilter(opts: {
+  status: MatchListStatus;
+  sourceFilter: boolean;
+  sources?: TenderSourceId[];
+  now: Date;
+}) {
+  const tender: Record<string, unknown> = {};
+  if (opts.sourceFilter) {
+    tender.source = { in: opts.sources ?? [] };
+  }
+  if (opts.status === "active") {
+    tender.OR = [{ deadlineAt: null }, { deadlineAt: { gt: opts.now } }];
+  } else if (opts.status === "archived") {
+    tender.deadlineAt = { lte: opts.now };
+  }
+  return tender;
+}
+
 export async function listMatchesForTenant(params: MatchListParams) {
-  const { tenantId, from, to, minScore = 0, sources, sourceFilter = false } = params;
+  const {
+    tenantId,
+    from,
+    to,
+    minScore = 0,
+    sources,
+    sourceFilter = false,
+    status = "active",
+  } = params;
+  const now = new Date();
+  const tenderFilter = buildTenderFilter({ status, sourceFilter, sources, now });
+
+  // Archived view is most useful when ordered by recency-of-expiry — operators
+  // glance at "what just closed". Active view stays ranked by fit (the original
+  // behaviour).
+  const orderBy =
+    status === "archived"
+      ? [{ tender: { deadlineAt: "desc" as const } }, { fitScore: "desc" as const }]
+      : { fitScore: "desc" as const };
+
   return prisma.matchResult.findMany({
     where: {
       tenantId,
       fitScore: { gte: minScore },
-      ...(sourceFilter
-        ? {
-            tender: {
-              source: { in: sources ?? [] },
-            },
-          }
-        : {}),
+      ...(Object.keys(tenderFilter).length > 0 ? { tender: tenderFilter } : {}),
       ...(from || to
         ? {
             createdAt: {
@@ -32,7 +80,7 @@ export async function listMatchesForTenant(params: MatchListParams) {
           }
         : {}),
     },
-    orderBy: { fitScore: "desc" },
+    orderBy,
     include: {
       tender: {
         select: {
@@ -49,6 +97,25 @@ export async function listMatchesForTenant(params: MatchListParams) {
           currency: true,
         },
       },
+    },
+  });
+}
+
+/**
+ * Cheap COUNT(*) used by the dashboard to render a "View archive (N)" link
+ * without round-tripping the full match list.
+ */
+export async function countMatchesForTenant(
+  params: Pick<MatchListParams, "tenantId" | "status" | "minScore">,
+): Promise<number> {
+  const { tenantId, status = "active", minScore = 0 } = params;
+  const now = new Date();
+  const tenderFilter = buildTenderFilter({ status, sourceFilter: false, now });
+  return prisma.matchResult.count({
+    where: {
+      tenantId,
+      fitScore: { gte: minScore },
+      ...(Object.keys(tenderFilter).length > 0 ? { tender: tenderFilter } : {}),
     },
   });
 }

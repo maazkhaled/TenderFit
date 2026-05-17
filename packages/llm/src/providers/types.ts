@@ -60,6 +60,32 @@ export interface EmbeddingProvider {
   embed(texts: string[]): Promise<number[][]>;
 }
 
+/**
+ * Cross-encoder reranker. Takes a query (e.g. flattened capability profile)
+ * and a list of candidate documents (tender excerpts) and returns each
+ * document's index plus a relevance score, sorted best-first.
+ *
+ * The implementation is allowed to truncate documents to fit its context.
+ * Callers should pass at most a few hundred candidates per call.
+ */
+export interface RerankProvider {
+  readonly name: ProviderName | "noop";
+  /** Pre-flight check — used by the doctor CLI. Should not call the model. */
+  ping(): Promise<{ ok: boolean; detail: string }>;
+  rerank(
+    query: string,
+    documents: string[],
+    opts?: { topK?: number },
+  ): Promise<RerankHit[]>;
+}
+
+export interface RerankHit {
+  /** 0-based index into the original `documents` array. */
+  index: number;
+  /** Relevance score from the model. Bounded behaviour is provider-specific. */
+  relevanceScore: number;
+}
+
 export type ProviderName =
   | "ollama"
   | "lmstudio"
@@ -70,12 +96,15 @@ export type ProviderName =
   | "nvidia";
 
 export class ProviderError extends Error {
-  constructor(
-    public readonly provider: ProviderName,
-    message: string,
-    public readonly cause?: unknown,
-  ) {
+  // Explicit fields rather than constructor parameter properties — the latter
+  // are not yet supported by Node's --experimental-strip-types loader that
+  // powers our test runner. Behaviour is unchanged.
+  public readonly provider: ProviderName;
+  public readonly cause?: unknown;
+  constructor(provider: ProviderName, message: string, cause?: unknown) {
     super(`[${provider}] ${message}`);
     this.name = "ProviderError";
+    this.provider = provider;
+    this.cause = cause;
   }
 }

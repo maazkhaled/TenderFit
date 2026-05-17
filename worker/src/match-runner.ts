@@ -1,5 +1,6 @@
 import {
   findNearestTenders,
+  findTendersByText,
   markEmbeddingFailed,
   prisma,
   readEmbeddingMeta,
@@ -7,11 +8,17 @@ import {
 } from "@beta/db";
 import {
   activeEmbeddingModelStamp,
+  buildProfileQuery,
   embedCapabilityProfile,
   embedTender,
   embeddingHashForProfile,
   embeddingHashForTender,
+  getRerankProvider,
+  hybridRetrieve,
+  renderProfileForLLM,
+  renderTenderForLLM,
   scoreMatch,
+  type HybridCandidate,
   type SimilarHistoricalWin,
 } from "@beta/llm";
 import type {
@@ -22,9 +29,39 @@ import type {
 } from "@beta/shared";
 
 const MAX_NEW_MATCHES_PER_TENANT = 20;
-const NEAREST_FETCH_LIMIT = 50;
+
+/**
+ * Per-retriever fetch limit before fusion. The dense + text retrievers each
+ * pull this many candidates, then RRF fuses them. 60 gives both rankers a
+ * reasonable budget without making the LLM stage wait on a giant rerank batch.
+ */
+const RETRIEVAL_PER_RETRIEVER_LIMIT = Number.parseInt(
+  process.env.MATCH_PER_RETRIEVER_LIMIT ?? "60",
+  10,
+);
+
+/**
+ * How many fused candidates flow into the cross-encoder reranker. The
+ * reranker then picks the top N for LLM scoring. With Voyage rerank-2.5 a
+ * batch of 40 is ~150ms — cheap enough to keep wider than MAX_NEW_MATCHES.
+ */
+const RERANK_INPUT_LIMIT = Number.parseInt(
+  process.env.MATCH_RERANK_INPUT_LIMIT ?? "40",
+  10,
+);
+
 const SCORE_TIMEOUT_MS = Number.parseInt(
   process.env.MATCH_SCORE_TIMEOUT_MS ?? "60000",
+  10,
+);
+
+/**
+ * Per-document text budget for the reranker. Voyage rerank-2.5 truncates
+ * server-side but trimming up-front cuts request size and (more importantly)
+ * keeps the most salient header info intact when truncation does kick in.
+ */
+const RERANK_DOC_CHARS = Number.parseInt(
+  process.env.MATCH_RERANK_DOC_CHARS ?? "1500",
   10,
 );
 
@@ -209,6 +246,21 @@ async function fetchHistoricalWins(
     .filter((w) => w.sector || w.country || w.buyer);
 }
 
+/** Compact representation of a tender for the cross-encoder reranker. */
+function tenderRerankDoc(row: any): string {
+  const title = String(row.title ?? "");
+  const buyer = String(row.buyer ?? "");
+  const sector = row.sector ? `Sector: ${row.sector}` : "";
+  const country = row.country ? `Country: ${row.country}` : "";
+  const cpv = Array.isArray(row.cpvCodes) && row.cpvCodes.length
+    ? `CPV: ${row.cpvCodes.join(", ")}`
+    : "";
+  const desc = String(row.description ?? "").slice(0, RERANK_DOC_CHARS);
+  return [`Title: ${title}`, `Buyer: ${buyer}`, sector, country, cpv, "", desc]
+    .filter((s) => s.length > 0)
+    .join("\n");
+}
+
 async function matchForTenant(tenant: {
   id: string;
   companyName: string;
@@ -219,53 +271,104 @@ async function matchForTenant(tenant: {
   let scoreAttempts = 0;
 
   const profile = profileRowToCapability(tenant.profile, tenant.companyName);
-  const nearest = await findNearestTenders(tenant.profile.id, NEAREST_FETCH_LIMIT);
-  if (nearest.length === 0) return { created, skipped };
 
+  // ---- Stage 1: hybrid retrieval (dense + BM25) fused via RRF ----
+  const candidates: HybridCandidate[] = await hybridRetrieve(
+    profile,
+    {
+      dense: (limit) => findNearestTenders(tenant.profile.id, limit),
+      text: (q, limit) => findTendersByText(q, limit),
+      buildQuery: buildProfileQuery,
+    },
+    {
+      perRetrieverLimit: RETRIEVAL_PER_RETRIEVER_LIMIT,
+      fusedLimit: RERANK_INPUT_LIMIT,
+    },
+  );
+  if (candidates.length === 0) return { created, skipped };
+
+  // ---- Stage 2: filter to active, not-already-matched, fetch full rows ----
   const now = new Date();
-  const tenderIds = Array.from(new Set(nearest.map((n) => n.id)));
+  const candidateIds = candidates.map((c) => c.id);
   const tenderRows = await prisma.tender.findMany({
     where: {
-      id: { in: tenderIds },
+      id: { in: candidateIds },
       OR: [{ deadlineAt: null }, { deadlineAt: { gt: now } }],
     },
   });
   const tendersById = new Map<string, any>(tenderRows.map((t: any) => [t.id, t]));
 
   const existing = await prisma.matchResult.findMany({
-    where: { tenantId: tenant.id, tenderId: { in: tenderIds } },
+    where: { tenantId: tenant.id, tenderId: { in: candidateIds } },
     select: { tenderId: true },
   });
   const existingIds = new Set<string>(existing.map((m: any) => m.tenderId));
 
-  const historicalWins = await fetchHistoricalWins(tenant.id);
+  // Preserve fusion order while dropping unavailable / already-scored candidates.
+  const eligible = candidates.filter(
+    (c) => tendersById.has(c.id) && !existingIds.has(c.id),
+  );
+  if (eligible.length === 0) return { created, skipped };
 
+  // ---- Stage 3: cross-encoder rerank ----
+  const reranker = getRerankProvider();
+  const rerankQuery = renderProfileForLLM(profile);
+  const rerankDocs = eligible.map((c) => tenderRerankDoc(tendersById.get(c.id)));
+  let rerankedOrder: HybridCandidate[];
+  try {
+    const hits = await reranker.rerank(rerankQuery, rerankDocs, {
+      topK: Math.min(MAX_NEW_MATCHES_PER_TENANT * 2, eligible.length),
+    });
+    if (hits.length === 0) {
+      rerankedOrder = eligible;
+    } else {
+      rerankedOrder = hits
+        .map((h) => eligible[h.index])
+        .filter((c): c is HybridCandidate => c != null);
+    }
+    console.log(
+      `[match] tenant=${tenant.id} rerank=${reranker.name} in=${rerankDocs.length} out=${rerankedOrder.length}`,
+    );
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(
+      `[match] tenant=${tenant.id} rerank failed (${msg}); using fusion order`,
+    );
+    rerankedOrder = eligible;
+  }
+
+  // ---- Stage 4: LLM scoring of the top-K ----
+  const historicalWins = await fetchHistoricalWins(tenant.id);
   const processedIds = new Set<string>();
-  for (const { id: tenderId, distance } of nearest) {
+  for (const candidate of rerankedOrder) {
     if (created >= MAX_NEW_MATCHES_PER_TENANT) break;
     if (scoreAttempts >= MAX_NEW_MATCHES_PER_TENANT) break;
-    if (processedIds.has(tenderId)) {
+    if (processedIds.has(candidate.id)) {
       skipped += 1;
       continue;
     }
-    processedIds.add(tenderId);
-    if (existingIds.has(tenderId)) {
+    processedIds.add(candidate.id);
+    if (existingIds.has(candidate.id)) {
       skipped += 1;
       continue;
     }
-    const row = tendersById.get(tenderId);
+    const row = tendersById.get(candidate.id);
     if (!row) {
       skipped += 1;
       continue;
     }
 
     const tender = tenderRowToNormalized(row);
-    const similarity = Math.max(0, Math.min(1, 1 - distance));
+    // Cosine similarity hint for the LLM. Text-only candidates carry null
+    // (no dense match in the top-K) — pass 0 and let the LLM rely on rationale.
+    const similarity = candidate.denseSimilarity ?? 0;
 
     try {
       scoreAttempts += 1;
       console.log(
-        `[match] tenant=${tenant.id} scoring ${scoreAttempts}/${MAX_NEW_MATCHES_PER_TENANT} tender=${tenderId} similarity=${similarity.toFixed(4)}`,
+        `[match] tenant=${tenant.id} scoring ${scoreAttempts}/${MAX_NEW_MATCHES_PER_TENANT} ` +
+          `tender=${candidate.id} sources=${candidate.sources.join("+")} ` +
+          `fused=${candidate.fusedScore.toFixed(4)} cos=${similarity.toFixed(4)}`,
       );
       const result = await withTimeout(
         scoreMatch(profile, tender, similarity, {
@@ -277,7 +380,7 @@ async function matchForTenant(tenant: {
       await prisma.matchResult.create({
         data: {
           tenantId: tenant.id,
-          tenderId,
+          tenderId: candidate.id,
           fitScore: result.fitScore,
           rationale: result.rationale,
           gaps: result.gaps as any,
@@ -287,20 +390,24 @@ async function matchForTenant(tenant: {
           modelVersion: result.modelVersion,
         },
       });
-      existingIds.add(tenderId);
+      existingIds.add(candidate.id);
       created += 1;
     } catch (err) {
       if (isUniqueConstraintError(err)) {
-        existingIds.add(tenderId);
+        existingIds.add(candidate.id);
         skipped += 1;
         continue;
       }
       const msg = err instanceof Error ? err.message : String(err);
       console.error(
-        `[match] tenant=${tenant.id} tender=${tenderId} score error: ${msg}`,
+        `[match] tenant=${tenant.id} tender=${candidate.id} score error: ${msg}`,
       );
     }
   }
+
+  // Use `renderTenderForLLM` import to avoid "unused import" elsewhere when we
+  // later wire fuller logging — referenced here as a noop guard.
+  void renderTenderForLLM;
 
   return { created, skipped };
 }
@@ -334,6 +441,10 @@ export async function runMatch(): Promise<void> {
   console.log(
     `[match] active embedding stamp: ${activeEmbeddingModelStamp()} ` +
       `(provider switch invalidates the hash cache automatically)`,
+  );
+  console.log(
+    `[match] retrieval: hybrid (dense + BM25-ish FTS, RRF fused), ` +
+      `rerank=${getRerankProvider().name}`,
   );
 
   console.log("[match] phase 1: embed pending tenders");

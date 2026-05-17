@@ -16,4 +16,5 @@ if (process.env.NODE_ENV !== "production") {
 }
 
 export * from "./embedding";
+export * from "./retrieval";
 export type { PrismaClient } from "@prisma/client";

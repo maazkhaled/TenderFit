@@ -25,6 +25,17 @@ export interface EmbeddingProviderConfig {
   timeoutMs: number;
 }
 
+export interface RerankProviderConfig {
+  /** "voyage" today. "none" disables reranking and the factory returns a no-op. */
+  provider: "voyage" | "none";
+  model: string;
+  baseUrl: string;
+  apiKey: string | null;
+  timeoutMs: number;
+  /** How many top candidates to ask the reranker for. */
+  topK: number;
+}
+
 const DEFAULT_OLLAMA = "http://localhost:11434";
 const DEFAULT_LMSTUDIO = "http://localhost:1234/v1";
 const DEFAULT_OPENAI = "https://api.openai.com/v1";
@@ -217,6 +228,38 @@ export function readEmbeddingConfig(): EmbeddingProviderConfig {
         timeoutMs,
       };
   }
+}
+
+/**
+ * Reranker config. Defaults: provider=none (disabled) so the rest of the
+ * pipeline runs unchanged when no key is set. Flip RERANK_PROVIDER=voyage
+ * once you have a VOYAGE_API_KEY to activate cross-encoder reranking.
+ */
+export function readRerankConfig(): RerankProviderConfig {
+  const raw = envStr("RERANK_PROVIDER", "none");
+  const provider: "voyage" | "none" =
+    raw === "voyage" ? "voyage" : raw === "none" ? "none" : "none";
+  const topK = envInt("RERANK_TOP_K", 20);
+  const timeoutMs = envInt("RERANK_TIMEOUT_MS", 30_000);
+
+  if (provider === "voyage") {
+    return {
+      provider,
+      model: envStr("RERANK_MODEL", "rerank-2.5")!,
+      baseUrl: envStr("VOYAGE_BASE_URL", "https://api.voyageai.com/v1")!,
+      apiKey: envStr("VOYAGE_API_KEY"),
+      timeoutMs,
+      topK,
+    };
+  }
+  return {
+    provider: "none",
+    model: "noop",
+    baseUrl: "",
+    apiKey: null,
+    timeoutMs,
+    topK,
+  };
 }
 
 export function fetchWithTimeout(

@@ -14,7 +14,10 @@
     "db:migrate": "prisma migrate dev --schema=prisma/schema.prisma",
     "db:push": "prisma db push --schema=prisma/schema.prisma",
     "db:vector-sql": "node packages/db/scripts/generate-pgvector-sql.mjs",
-    "llm:doctor": "pnpm --filter @beta/llm llm-doctor"
+    "db:sql": "node packages/db/scripts/run-sql.mjs",
+    "db:fts-migrate": "node packages/db/scripts/run-sql.mjs packages/db/src/migrations/005_tender_fts.sql",
+    "llm:doctor": "pnpm --filter @beta/llm llm-doctor",
+    "eval": "pnpm --filter worker run eval --"
   },
   "devDependencies": {
     "@types/node": "^22.7.5",

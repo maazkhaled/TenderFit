@@ -7,8 +7,10 @@
     "ingest": "tsx src/ingest-runner.ts",
     "match": "tsx src/match-runner.ts",
     "digest": "tsx src/digest-runner.ts",
+    "eval": "tsx src/eval-runner.ts",
     "dev": "tsx watch src/cron.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "node --test --experimental-strip-types src/__tests__/*.test.ts src/eval/__tests__/*.test.ts"
   },
   "dependencies": {
     "@beta/shared": "workspace:*",

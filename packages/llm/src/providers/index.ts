@@ -5,7 +5,7 @@
  * has to know which backend is wired up. Reset hooks are provided for tests.
  */
 
-import { readChatConfig, readEmbeddingConfig } from "./config";
+import { readChatConfig, readEmbeddingConfig, readRerankConfig } from "./config";
 import { OllamaChatProvider, OllamaEmbeddingProvider } from "./ollama";
 import {
   OpenAICompatChatProvider,
@@ -13,10 +13,12 @@ import {
 } from "./openai-compat";
 import { AnthropicChatProvider } from "./anthropic";
 import { VoyageEmbeddingProvider } from "./voyage";
-import type { ChatProvider, EmbeddingProvider } from "./types";
+import { NoopRerankProvider, VoyageRerankProvider } from "./voyage-rerank";
+import type { ChatProvider, EmbeddingProvider, RerankProvider } from "./types";
 
 let _chat: ChatProvider | null = null;
 let _embed: EmbeddingProvider | null = null;
+let _rerank: RerankProvider | null = null;
 
 export function getChatProvider(): ChatProvider {
   if (_chat) return _chat;
@@ -74,10 +76,33 @@ export function getEmbeddingProvider(): EmbeddingProvider {
   return _embed;
 }
 
+/**
+ * Cross-encoder reranker. Returns a no-op (pass-through) provider when
+ * RERANK_PROVIDER is unset/none or its API key is missing — keeps the calling
+ * pipeline unchanged when reranking is intentionally disabled or misconfigured.
+ */
+export function getRerankProvider(): RerankProvider {
+  if (_rerank) return _rerank;
+  const cfg = readRerankConfig();
+  if (cfg.provider === "voyage" && cfg.apiKey) {
+    _rerank = new VoyageRerankProvider(cfg);
+  } else {
+    _rerank = new NoopRerankProvider();
+  }
+  return _rerank;
+}
+
 export function resetProviders(): void {
   _chat = null;
   _embed = null;
+  _rerank = null;
 }
 
-export type { ChatProvider, EmbeddingProvider, JsonSchema } from "./types";
+export type {
+  ChatProvider,
+  EmbeddingProvider,
+  RerankProvider,
+  RerankHit,
+  JsonSchema,
+} from "./types";
 export { ProviderError } from "./types";

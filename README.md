@@ -12,13 +12,74 @@ The default stack runs **fully on a laptop, free of API charges**: local LLM via
 
 For every (tender, company) pair the matcher produces:
 
-1. **Fit score 0–100** — vector similarity reranked by an LLM
+1. **Fit score 0–100** — produced by a four-stage pipeline (see *How matching works* below): hybrid retrieval → cross-encoder rerank → LLM scoring → optional cosine-blend for small local models
 2. **Why-it-fits rationale** — exactly 3 grounded bullets
 3. **Capability gaps** — explicit blockers / major / minor requirements the company doesn't yet meet
 4. **Win-probability heuristic** — Low / Medium / High with reasoning (deterministic, then LLM may agree or override)
 5. **One-click capability statement draft** — tailored, no-hallucination bid input
 
-Aggregation alone is commodity. The matcher is the moat.
+Plus a **shadow-mode eval harness** (`pnpm eval --tenant=<slug>`) that computes confusion-matrix metrics from `MatchFeedback` labels — the closed-loop tool the "Friday review" ritual is built around.
+
+Aggregation alone is commodity. The matcher + the eval loop are the moat.
+
+## How matching works (pipeline)
+
+```
+tender + profile
+        │
+        ▼
+┌────────────────────────────────────────────────────────────┐
+│  Stage 1 — Hybrid retrieval (Reciprocal Rank Fusion, k=60) │
+│    • Dense:  pgvector cosine over chunked + mean-pooled    │
+│              tender embeddings (Voyage / Ollama / …)       │
+│    • Lexical: Postgres ts_rank_cd over a weighted tsvector │
+│              (title=A, buyer=B, sector/CPV=C, desc=D)      │
+│    Output: top-N fused candidates per tenant               │
+└────────────────────────────────────────────────────────────┘
+        │
+        ▼
+┌────────────────────────────────────────────────────────────┐
+│  Stage 2 — Cross-encoder rerank                            │
+│    • Voyage rerank-2.5 (or NoopRerankProvider when         │
+│      RERANK_PROVIDER=none)                                 │
+│    Output: top-K precision-reranked candidates             │
+└────────────────────────────────────────────────────────────┘
+        │
+        ▼
+┌────────────────────────────────────────────────────────────┐
+│  Stage 3 — LLM structured scoring                          │
+│    • fit score, 3-bullet rationale, gap list,              │
+│      win-probability, HR estimate                          │
+│    • Schema-constrained JSON (Anthropic tool-use / OpenAI  │
+│      response_format / Ollama format)                      │
+└────────────────────────────────────────────────────────────┘
+        │
+        ▼
+┌────────────────────────────────────────────────────────────┐
+│  Stage 4 — Provider-aware blend (local-only)               │
+│    • Local 7B models can swing fit scores; blend with the  │
+│      cosine baseline at weight LLM_SCORE_BLEND_WEIGHT      │
+│      (default 0.3 for ollama/lmstudio, 0 for cloud)        │
+└────────────────────────────────────────────────────────────┘
+```
+
+This is the 2025-26 industry-standard hybrid-retrieval architecture (see e.g. ZeroEntropy's reranker guide and the Genzeon hybrid-retrieval study). On published benchmarks, hybrid retrieval plus a cross-encoder reranker lifts Recall@5 by ≈17% over dense-only.
+
+Long tender descriptions are **chunked** (recursive separator-aware splitter, 1500-char target with 200-char overlap), each chunk embedded with the tender header prepended, then **length-weighted mean-pooled** into a single vector — so the existing `vector(1024)` schema doesn't change but signal from later pages is preserved.
+
+Key files:
+
+| Concern | File |
+|---|---|
+| Chunking + pooling | `packages/llm/src/util/chunk.ts` |
+| Long-text embedding | `packages/llm/src/embed.ts` |
+| Hybrid retrieval + RRF fusion | `packages/llm/src/retrieve.ts` |
+| BM25-style FTS query | `packages/db/src/retrieval.ts` |
+| Voyage rerank + no-op fallback | `packages/llm/src/providers/voyage-rerank.ts` |
+| LLM structured scoring | `packages/llm/src/score.ts` |
+| Pipeline wiring | `worker/src/match-runner.ts` |
+| Eval metrics + report | `worker/src/eval/metrics.ts`, `worker/src/eval/report.ts` |
+| Eval CLI | `worker/src/eval-runner.ts` |
 
 ## Architecture
 
@@ -271,27 +332,38 @@ Run Ollama on a GPU VM (RunPod, Lambda Labs, Vast.ai, Scaleway H100, your own bo
 ```bash
 # Create the database (one-time)
 psql "$DATABASE_URL_ROOT" -c "CREATE DATABASE project_beta;"
-psql "$DATABASE_URL"      -c "CREATE EXTENSION IF NOT EXISTS vector;"
+psql -d project_beta -c "CREATE EXTENSION IF NOT EXISTS vector;"
 
-# Schema + pgvector columns
+# Schema + Prisma model
 pnpm db:generate
 pnpm db:push
-pnpm db:vector-sql                            # generates SQL with current EMBEDDING_DIM
-psql "$DATABASE_URL" -f packages/db/src/migrations/001_pgvector.sql
+
+# Raw SQL migrations — apply in numeric order. pnpm db:sql wraps psql so it
+# loads .env automatically and strips the ?schema=public param Prisma adds
+# (which raw psql rejects).
+pnpm db:vector-sql                                                       # regenerates 001 with current EMBEDDING_DIM
+pnpm db:sql packages/db/src/migrations/001_pgvector.sql                  # vector columns + HNSW indexes
+pnpm db:sql packages/db/src/migrations/002_tender_sources.sql            # TenderSource enum extensions
+pnpm db:sql packages/db/src/migrations/003_match_human_resources.sql     # humanResourcesEstimate column
+pnpm db:sql packages/db/src/migrations/004_user_multi_tenant.sql         # composite (email, tenantId) unique
+pnpm db:fts-migrate                                                      # 005 — FTS (tsvector + GIN) for hybrid retrieval
 ```
 
-If you change `EMBEDDING_DIM` later (e.g. switching to a 768-dim or 1536-dim embedding model), re-run `pnpm db:vector-sql` and re-apply the SQL.
+Each raw migration is idempotent (`IF NOT EXISTS` / `IF EXISTS` guards). `db:fts-migrate` is just an alias for `pnpm db:sql packages/db/src/migrations/005_tender_fts.sql`.
 
-**Caveat: the `Tender` and `CapabilityProfile` tables hold the `embedding` columns via raw SQL, not Prisma.** Subsequent `prisma db push` runs will warn about "data loss" wanting to drop them. Apply enum/column changes via raw `ALTER` statements — see the existing TenderSource enum extension in `packages/db/src/migrations/`.
+If you change `EMBEDDING_DIM` later (e.g. switching to a 768-dim or 1536-dim embedding model), re-run `pnpm db:vector-sql` and re-apply `001`.
+
+**Caveat: the `Tender` and `CapabilityProfile` tables hold the `embedding` columns (and the FTS `fts_doc` generated column) via raw SQL, not Prisma.** Subsequent `prisma db push` runs will warn about "data loss" wanting to drop them. Apply enum/column changes via raw `ALTER` statements — see the existing migrations in `packages/db/src/migrations/`.
 
 ### 4. Dev
 
 ```bash
-pnpm dev:web              # Next.js on :3000
-pnpm worker:ingest        # one-shot: pull new tenders from all enabled sources
-pnpm worker:match         # one-shot: embed + score (skips rows whose content hash is unchanged)
-pnpm worker:digest        # one-shot: send digests for due tenants
-pnpm --filter worker dev  # OR continuous cron mode (ingest 6h, match 1h, digest 15m)
+pnpm dev:web                # Next.js on :3000
+pnpm worker:ingest          # one-shot: pull new tenders from all enabled sources
+pnpm worker:match           # one-shot: hybrid retrieve + rerank + LLM score (skips rows whose content hash is unchanged)
+pnpm worker:digest          # one-shot: send digests for due tenants
+pnpm eval --tenant=<slug>   # shadow-mode eval report from MatchFeedback labels
+pnpm --filter worker dev    # OR continuous cron mode (ingest 6h, match 1h, digest 15m)
 ```
 
 The match worker takes 100 tenders per phase. On a fresh ingest of 1500+ tenders, run it ~15 times (or just leave the cron mode running) to drain the queue. Once the `embeddingHash` column is populated, subsequent runs are near-instant — only changed rows re-embed.
@@ -316,11 +388,15 @@ pnpm install
 cp .env.example .env
 # Edit .env: set DATABASE_URL and SESSION_SECRET (>= 32 chars: `openssl rand -hex 24`)
 
-# 4. Schema
+# 4. Schema (raw SQL migrations applied in order)
 pnpm db:generate
 pnpm db:push
 pnpm db:vector-sql
-psql "$DATABASE_URL" -f packages/db/src/migrations/001_pgvector.sql
+pnpm db:sql packages/db/src/migrations/001_pgvector.sql
+pnpm db:sql packages/db/src/migrations/002_tender_sources.sql
+pnpm db:sql packages/db/src/migrations/003_match_human_resources.sql
+pnpm db:sql packages/db/src/migrations/004_user_multi_tenant.sql
+pnpm db:fts-migrate                                                       # 005 — full-text search column
 
 # 5. LLM models (run once; ~7 GB total disk)
 ollama serve &        # start the daemon (or run in another shell)
@@ -446,6 +522,56 @@ Small local models can swing the LLM-assigned `fitScore` more than frontier mode
 
 Each `Tender` and `CapabilityProfile` row stores a `(embeddingHash, embeddingModel)` pair so the match worker skips re-embedding when nothing has changed. Provider/model swaps invalidate automatically because the model name is part of the hash.
 
+### Shadow-mode eval
+
+The matcher runs alongside the bid team's existing workflow without changing it: every morning the worker scores tenders, the team independently marks matches they're interested in (writes `MatchFeedback` rows), and once a week the eval harness compares the two. Build the report with:
+
+```bash
+pnpm eval --tenant=<your-slug>                              # all-time
+pnpm eval --tenant=<your-slug> --since=2026-04-01           # window
+pnpm eval --tenant=<your-slug> --thresholds=40,60,75        # custom thresholds
+pnpm eval --tenant=<your-slug> --out=./reviews/wk16.md      # custom output path
+```
+
+Output is a Markdown file in `outputs/eval-<slug>-<date>.md` containing:
+
+- **Agreement rate** at each threshold — across labeled matches, on how many did the matcher (`fitScore ≥ threshold`) and the bid team (`interested = true`) reach the same conclusion?
+- **Confusion matrix** (TP / FP / FN / TN), precision, recall, F1 per threshold
+- **Per-source breakdown** so you can see whether the matcher is much better on SAM.gov than on PPRA (or vice versa)
+- An inline "How to read this" guide for non-ML readers
+
+The aim is to keep the matcher **honest and improving over months**: track agreement and per-source breakdown trends, look at false negatives first (those would have been silently dropped in production), then false positives.
+
+### Reranking — Voyage rerank-2.5
+
+Stage 2 of the pipeline uses a cross-encoder reranker. Default is `RERANK_PROVIDER=none` (a no-op pass-through). To activate Voyage's rerank-2.5:
+
+```env
+RERANK_PROVIDER=voyage
+VOYAGE_API_KEY=pa-...
+# Optional overrides:
+# RERANK_MODEL=rerank-2.5            # also: rerank-2.5-lite (cheaper, faster)
+# RERANK_TOP_K=20                    # how many top candidates to LLM-score
+# RERANK_TIMEOUT_MS=30000
+```
+
+The Voyage free tier covers **200M tokens** on rerank-2.5, which is well beyond a single company's working set — practically free for internal use. Pricing: <https://docs.voyageai.com/docs/pricing>.
+
+### Tuning the retrieval pipeline
+
+All knobs are env-controlled with sensible defaults. None require code changes.
+
+| Variable | Default | Effect |
+|---|---|---|
+| `MATCH_PER_RETRIEVER_LIMIT` | `60` | Top-N pulled from each retriever (dense and FTS) before fusion |
+| `MATCH_RERANK_INPUT_LIMIT` | `40` | Fused candidates handed to the reranker |
+| `MATCH_RERANK_DOC_CHARS` | `1500` | Per-doc text budget for the reranker (server-side truncation also applies) |
+| `EMBED_INPUT_CHAR_CAP` | `6000` | Per-input cap before embed call (Voyage handles ~8K tokens; mxbai caps at 512) |
+| `EMBED_LONG_TEXT_THRESHOLD` | same as cap | Tenders longer than this get chunked + mean-pooled |
+| `EMBED_CHUNK_TARGET_CHARS` | `1500` | Target chars per chunk |
+| `EMBED_CHUNK_OVERLAP_CHARS` | `200` | Overlap between adjacent chunks |
+| `EMBED_CHUNK_MAX_BATCH` | `16` | Max chunks per provider request |
+
 ## Cron schedule (continuous mode)
 
 | Job | Frequency |
@@ -475,9 +601,12 @@ This repo was built by a coordinated agent build:
 This is an MVP that proves the architecture and the matching loop end-to-end:
 
 - ✅ 12 sources actively ingest live tenders; 14 more registered-but-disabled with documented reasons (Cloudflare, paywalls, geofences). Live PDA scrape uses a scoped TLS-relaxation for that one host (incomplete cert chain). PC.gov.pk scraper rewritten to walk tender table rows only (no footer false positives).
+- ✅ **Hybrid retrieval (dense + BM25-style FTS, RRF-fused)** + **cross-encoder rerank stage** (Voyage rerank-2.5, with no-op fallback) + LLM structured scoring — the 2025-26 industry-standard pipeline
+- ✅ Long-tender **chunking + mean-pool aggregation** so multi-page descriptions retain signal without a schema change
 - ✅ Local LLM stack scores fit + gaps + win-prob + HR estimate as a single structured-output call; verified with qwen2.5:7b
 - ✅ Capability statement generation works end-to-end against local models
 - ✅ Persistent embedding cache + provider-aware score blending
+- ✅ **Shadow-mode eval harness** (`pnpm eval`) — confusion matrix + per-source breakdown from `MatchFeedback` labels, output as a Markdown report
 - ✅ Seven LLM provider backends drop in via env-var swap: Ollama, LM Studio, OpenAI, Anthropic, Voyage, **Google Gemini** (free tier), **NVIDIA NIM** (free dev tier)
 
 Not yet production: no real auth (single-user-per-tenant stub), no rate-limit handling beyond polite scraping, no payment, no live FX feed (static fallback rates), TED EU adapter awaiting BT-code rewrite. Outstanding items are grep-able as `TODO(lead):` markers across the tree.

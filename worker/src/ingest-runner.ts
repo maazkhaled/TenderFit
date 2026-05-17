@@ -1,3 +1,6 @@
+// MUST be first — see worker/src/util/load-env.ts.
+import "./util/load-env.js";
+
 import { prisma } from "@beta/db";
 import {
   adapters,

@@ -9,6 +9,10 @@
  *   3. End-to-end: a tiny structured-output round-trip.
  */
 
+// MUST be first — see packages/llm/src/util/load-env.ts. Without this the
+// doctor reports the provider defaults instead of what .env actually says.
+import "./util/load-env.js";
+
 import { readChatConfig, readEmbeddingConfig } from "./providers/config";
 import { getChatProvider, getEmbeddingProvider } from "./providers";
 import type { JsonSchema } from "./providers/types";

@@ -17,6 +17,9 @@
  * owner read each week.
  */
 
+// MUST be first — see worker/src/util/load-env.ts.
+import "./util/load-env.js";
+
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { prisma } from "@beta/db";

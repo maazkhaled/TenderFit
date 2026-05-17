@@ -1,3 +1,8 @@
+// MUST be first — see worker/src/util/load-env.ts. The downstream entry
+// modules also import it, but loading here means the cron-shell-only env vars
+// (DEBUG_ENV etc) take effect before anything else runs.
+import "./util/load-env.js";
+
 import cron from "node-cron";
 import { prisma } from "@beta/db";
 import { runIngest } from "./ingest-runner.js";

@@ -1,3 +1,8 @@
+// MUST be the first import — populates process.env from .env before any
+// downstream module reads provider config (LLM_PROVIDER, EMBEDDING_PROVIDER,
+// RERANK_PROVIDER, VOYAGE_API_KEY, …). Side-effect import on purpose.
+import "./util/load-env.js";
+
 import {
   findNearestTenders,
   findTendersByText,

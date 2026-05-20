@@ -33,7 +33,10 @@ import type {
   TenderSourceId,
 } from "@beta/shared";
 
-const MAX_NEW_MATCHES_PER_TENANT = 20;
+const MAX_NEW_MATCHES_PER_TENANT = Number.parseInt(
+  process.env.MATCH_MAX_NEW_MATCHES_PER_TENANT ?? "20",
+  10,
+);
 
 /**
  * Per-retriever fetch limit before fusion. The dense + text retrievers each
@@ -59,6 +62,9 @@ const SCORE_TIMEOUT_MS = Number.parseInt(
   process.env.MATCH_SCORE_TIMEOUT_MS ?? "60000",
   10,
 );
+
+const EMBEDDING_PHASE_ENABLED =
+  process.env.MATCH_EMBEDDING_PHASE !== "false";
 
 /**
  * Per-document text budget for the reranker. Voyage rerank-2.5 truncates
@@ -156,6 +162,12 @@ async function embedPendingTenders(): Promise<void> {
       embedded += 1;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
+      if (isRateLimitError(err)) {
+        console.warn(
+          `[match] tender embedding rate-limited (${msg}); leaving remaining tenders pending`,
+        );
+        break;
+      }
       console.error(`[match] tender embed failed id=${row.id}: ${msg}`);
       try {
         await markEmbeddingFailed("Tender", row.id);
@@ -205,6 +217,12 @@ async function embedPendingProfiles(): Promise<void> {
       embedded += 1;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
+      if (isRateLimitError(err)) {
+        console.warn(
+          `[match] profile embedding rate-limited (${msg}); leaving remaining profiles pending`,
+        );
+        break;
+      }
       console.error(`[match] profile embed failed id=${row.id}: ${msg}`);
       try {
         await markEmbeddingFailed("CapabilityProfile", row.id);
@@ -404,6 +422,12 @@ async function matchForTenant(tenant: {
         continue;
       }
       const msg = err instanceof Error ? err.message : String(err);
+      if (isRateLimitError(err)) {
+        console.warn(
+          `[match] tenant=${tenant.id} scoring rate-limited (${msg}); stopping this tenant for now`,
+        );
+        break;
+      }
       console.error(
         `[match] tenant=${tenant.id} tender=${candidate.id} score error: ${msg}`,
       );
@@ -442,6 +466,16 @@ function isUniqueConstraintError(err: unknown): boolean {
   return code === "P2002";
 }
 
+function isRateLimitError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  return (
+    msg.includes(" 429") ||
+    msg.includes("Too Many Requests") ||
+    msg.toLowerCase().includes("rate limit") ||
+    msg.toLowerCase().includes("quota")
+  );
+}
+
 export async function runMatch(): Promise<void> {
   console.log(
     `[match] active embedding stamp: ${activeEmbeddingModelStamp()} ` +
@@ -452,11 +486,17 @@ export async function runMatch(): Promise<void> {
       `rerank=${getRerankProvider().name}`,
   );
 
-  console.log("[match] phase 1: embed pending tenders");
-  await embedPendingTenders();
+  if (EMBEDDING_PHASE_ENABLED) {
+    console.log("[match] phase 1: embed pending tenders");
+    await embedPendingTenders();
 
-  console.log("[match] phase 2: embed pending capability profiles");
-  await embedPendingProfiles();
+    console.log("[match] phase 2: embed pending capability profiles");
+    await embedPendingProfiles();
+  } else {
+    console.log(
+      "[match] embedding phase disabled by MATCH_EMBEDDING_PHASE=false; using text retrieval only",
+    );
+  }
 
   console.log("[match] phase 3: score matches per tenant");
   const tenants = await prisma.tenant.findMany({
@@ -471,9 +511,8 @@ export async function runMatch(): Promise<void> {
     }
     if (tenant.profile.embeddingStatus !== "ready") {
       console.log(
-        `[match] tenant=${tenant.slug} profile embedding=${tenant.profile.embeddingStatus}, skipping`,
+        `[match] tenant=${tenant.slug} profile embedding=${tenant.profile.embeddingStatus}; falling back to text retrieval`,
       );
-      continue;
     }
     const { created, skipped } = await matchForTenant(tenant);
     totalCreated += created;

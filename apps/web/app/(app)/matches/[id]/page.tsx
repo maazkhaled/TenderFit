@@ -37,6 +37,32 @@ interface MatchResponse {
   match: MatchDetail;
 }
 
+/**
+ * Convert an HTML description (from World Bank / UNDP sources) to plain text.
+ * Preserves paragraph breaks; strips all tags and decodes common entities.
+ */
+function stripHtml(html: string): string {
+  // Block-level elements → newlines
+  const withBreaks = html
+    .replace(/<\/?(p|div|tr|li|h[1-6]|br\s*\/?)[\s>][^>]*>/gi, "\n")
+    .replace(/<\/?(p|div|tr|li|h[1-6])>/gi, "\n");
+  // Remove remaining tags
+  const noTags = withBreaks.replace(/<[^>]+>/g, "");
+  // Decode common HTML entities
+  const decoded = noTags
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/&ndash;/gi, "–")
+    .replace(/&mdash;/gi, "—")
+    .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)));
+  // Collapse 3+ consecutive newlines → 2
+  return decoded.replace(/\n{3,}/g, "\n\n").trim();
+}
+
 function formatBudget(min: number | null, max: number | null) {
   if (!min && !max) return "Not disclosed";
   const fmt = (n: number) =>
@@ -107,7 +133,7 @@ export default async function MatchDetailPage({
             </CardHeader>
             <CardBody>
               <p className="whitespace-pre-wrap text-sm leading-relaxed text-ink-soft">
-                {match.tender.description}
+                {stripHtml(match.tender.description)}
               </p>
             </CardBody>
           </Card>

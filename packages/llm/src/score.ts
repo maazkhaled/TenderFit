@@ -15,7 +15,7 @@ import {
   type SimilarHistoricalWin,
 } from "./winprob";
 
-const MAX_TOKENS = 1500;
+const MAX_TOKENS = 3000;
 
 const ToolInputSchema = z.object({
   rationale: z.array(z.string().min(1)).length(MATCH_RATIONALE_BULLET_COUNT),

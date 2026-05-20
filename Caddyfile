@@ -1,0 +1,20 @@
+# Project Beta — Caddy reverse proxy config (production only)
+#
+# Used when the `caddy` service in docker-compose.yml is enabled.
+# Caddy fetches a Let's Encrypt cert automatically the first time it
+# starts up and serves the Next.js web service on 443.
+#
+# Set DOMAIN + EMAIL via env in docker-compose.yml.
+
+{
+    email {$EMAIL}
+}
+
+{$DOMAIN} {
+    encode zstd gzip
+    reverse_proxy web:3000 {
+        header_up X-Real-IP {remote_host}
+        header_up X-Forwarded-For {remote_host}
+        header_up X-Forwarded-Proto {scheme}
+    }
+}

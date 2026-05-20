@@ -24,7 +24,9 @@ export type SessionData = {
   userId?: string;
 };
 
-const DEV_DEFAULT_EMAIL = "dev@local.test";
+const DEV_DEFAULT_EMAIL =
+  process.env.DEV_DEFAULT_EMAIL?.trim() || "dev@local.test";
+const isHttpsApp = process.env.APP_URL?.startsWith("https://") ?? false;
 
 const sessionOptions: SessionOptions = {
   password:
@@ -34,7 +36,7 @@ const sessionOptions: SessionOptions = {
   cookieOptions: {
     httpOnly: true,
     sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
+    secure: process.env.NODE_ENV === "production" && isHttpsApp,
     path: "/",
   },
 };

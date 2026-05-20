@@ -4,11 +4,11 @@ Multi-tenant SaaS that ingests tender / RFP / project opportunities (domestic an
 
 Target buyer: any IT services / software / consulting company that bids on opportunities.
 
-The default stack runs **fully on a laptop, free of API charges**: local LLM via Ollama, local embeddings, local Postgres + pgvector. Same code switches to managed cloud (Anthropic / OpenAI / Voyage) by changing env vars — no code changes.
+The recommended setup runs via **Docker Compose** — no local tooling required beyond Docker Desktop. A free Google Gemini API key is the only credential needed out of the box. The same codebase switches to any LLM backend (Ollama, Anthropic, OpenAI, NVIDIA NIM, or Voyage) by changing env vars; no code changes required.
 
-> See `SCOPE.md` for the full product brief, architectural contracts, and the "innovative bit" specification.
+> See `SCOPE.md` for the full product brief and architectural contracts.
 
-## The innovative bit
+## What the matcher produces
 
 For every (tender, company) pair the matcher produces:
 
@@ -63,7 +63,7 @@ tender + profile
 └────────────────────────────────────────────────────────────┘
 ```
 
-This is the 2025-26 industry-standard hybrid-retrieval architecture (see e.g. ZeroEntropy's reranker guide and the Genzeon hybrid-retrieval study). On published benchmarks, hybrid retrieval plus a cross-encoder reranker lifts Recall@5 by ≈17% over dense-only.
+This is the current industry-standard hybrid-retrieval architecture (see e.g. ZeroEntropy's reranker guide and the Genzeon hybrid-retrieval study). On published benchmarks, hybrid retrieval plus a cross-encoder reranker lifts Recall@5 by ≈17% over dense-only.
 
 Long tender descriptions are **chunked** (recursive separator-aware splitter, 1500-char target with 200-char overlap), each chunk embedded with the tender header prepended, then **length-weighted mean-pooled** into a single vector — so the existing `vector(1024)` schema doesn't change but signal from later pages is preserved.
 
@@ -86,16 +86,18 @@ Key files:
 ```
 project-beta/
 ├── SCOPE.md
+├── docker-compose.yml            ← recommended deployment: web + worker + postgres
+├── Dockerfile                    ← multi-target build (web and worker images)
 ├── prisma/schema.prisma          ← shared DB contract (pgvector + Postgres)
 ├── apps/
-│   └── web/                       ← Next.js 14 (App Router) — UI + API
-├── worker/                        ← Node worker (ingest / match / digest / cron)
+│   └── web/                      ← Next.js 14 (App Router) — UI + API
+├── worker/                       ← Node worker (ingest / match / digest / cron)
 └── packages/
-    ├── shared/                    ← Zod schemas, types, constants
-    ├── db/                        ← Prisma client + pgvector helpers
-    ├── ingest/                    ← Source adapters (28 sources — World Bank, UK Find a Tender, UK Contracts Finder, PPRA, UNGM, UNDP, NITB, PITB, Ignite, Planning Commission, Urban Unit, PDA, SAM.gov, …)
-    ├── llm/                       ← Pluggable matching engine (Ollama / LM Studio / OpenAI / Anthropic / Voyage / Gemini / NVIDIA NIM)
-    └── notifications/             ← Digest builder + renderer + sender
+    ├── shared/                   ← Zod schemas, types, constants
+    ├── db/                       ← Prisma client + pgvector helpers
+    ├── ingest/                   ← Source adapters (28 sources — World Bank, UK Find a Tender, UK Contracts Finder, PPRA, UNGM, UNDP, NITB, PITB, Ignite, Planning Commission, Urban Unit, PDA, SAM.gov, …)
+    ├── llm/                      ← Pluggable matching engine (Ollama / LM Studio / OpenAI / Anthropic / Voyage / Gemini / NVIDIA NIM)
+    └── notifications/            ← Digest builder + renderer + sender
 ```
 
 ## Data sources
@@ -165,26 +167,56 @@ When a source has no JSON / RSS / Atom alternative we fall back to HTML scraping
 
 Each adapter implements `IngestAdapter` from `packages/ingest/src/types.ts`. Add new adapters under `packages/ingest/src/adapters/` and register them in `packages/ingest/src/index.ts` plus the enum in `prisma/schema.prisma` and `packages/shared/src/constants.ts`. Set `disabledReason` to retire an adapter without deleting historical rows.
 
-## Quick start
+## Quick start (Docker — recommended)
 
-Prerequisites: Node ≥ 20.10, pnpm 9, PostgreSQL 16+, [pgvector](https://github.com/pgvector/pgvector), [Ollama](https://ollama.com). **No paid API keys required** for the default local-first config.
+Prerequisites: [Docker Desktop](https://docs.docker.com/get-docker/) (or Docker Engine + Compose v2). No other local tooling required.
+
+```bash
+# 1. Configure
+cp .env.example .env
+# Open .env and fill in:
+#   GEMINI_API_KEY  — free key from https://aistudio.google.com/apikey
+#   SESSION_SECRET  — any 32+ char random string (e.g. `openssl rand -hex 24`)
+#   (all other defaults work out of the box)
+
+# 2. Build images and start all three services
+docker compose build
+docker compose up -d
+# → postgres on :5432  |  web on :3000  |  worker cron running in background
+
+# 3. First-run only — apply DB schema (~10 s)
+docker compose exec web pnpm db:push
+docker compose exec web pnpm db:sql packages/db/src/migrations/001_pgvector.sql
+docker compose exec web pnpm db:sql packages/db/src/migrations/002_tender_sources.sql
+docker compose exec web pnpm db:sql packages/db/src/migrations/003_match_human_resources.sql
+docker compose exec web pnpm db:sql packages/db/src/migrations/004_user_multi_tenant.sql
+docker compose exec web pnpm db:fts-migrate
+
+# 4. Visit http://localhost:3000, create a company profile, and let the worker run.
+```
+
+The worker cron ingests tenders every 6 h and scores matches hourly. To force an immediate first pass instead of waiting:
+
+```bash
+docker compose exec worker pnpm ingest          # pull tenders from all active sources (~30–90 s)
+for i in {1..5}; do docker compose exec worker pnpm match; done
+# Each pass embeds up to 100 tenders and scores up to 20 per tenant.
+# Run several times to drain the embedding queue on a fresh database.
+```
+
+### 1. Install (local dev without Docker)
 
 ```bash
 # macOS
-brew install postgresql@17 pgvector ollama
+brew install postgresql@17 pgvector
 brew services start postgresql@17
-ollama serve &        # run in another shell or as a service
-```
 
-### 1. Install
-
-```bash
 pnpm install
 cp .env.example .env
 # Open .env and:
 #   - set DATABASE_URL to your local Postgres
 #   - set SESSION_SECRET to a 32+ char random string (e.g. `openssl rand -hex 24`)
-#   - leave LLM_* defaults alone for local-first dev
+#   - set GEMINI_API_KEY, or configure a local Ollama stack (see below)
 ```
 
 ### 2. Pick an LLM stack
@@ -193,9 +225,10 @@ The matcher and capability-statement generator both go through a provider abstra
 
 | Use case | `LLM_PROVIDER` | `EMBEDDING_PROVIDER` | Cost |
 |---|---|---|---|
-| Local dev (default) | `ollama` | `ollama` | free |
+| Docker / cloud default | `gemini` | `gemini` | free tier |
+| Local dev (no internet) | `ollama` | `ollama` | free |
 | Local dev via LM Studio UI | `lmstudio` | `lmstudio` | free |
-| Free cloud (Google Gemini) | `gemini` | `gemini` | free tier — ~10 RPM / 250 RPD |
+| Free cloud (Google Gemini) | `gemini` | `gemini` | free tier — gemini-3.1-flash-lite: ~15 RPM / 500 RPD |
 | Free cloud (NVIDIA NIM) | `nvidia` | `nvidia` | free dev tier on build.nvidia.com |
 | Self-hosted prod (Ollama on a GPU VM) | `ollama` (remote URL) | `ollama` (remote URL) | infra only |
 | Cloud prod (Anthropic + Voyage) | `anthropic` | `voyage` | pay per call |
@@ -259,9 +292,9 @@ EMBEDDING_MODEL=gemini-embedding-001
 EMBEDDING_DIM=1024   # MRL-truncated; no migration needed
 ```
 
-#### Local-first (Ollama) — recommended for dev
+#### Local-first (Ollama)
 
-Tested on M4 Pro / 24 GB RAM. The active set occupies ~6 GB resident.
+Requires a machine with sufficient RAM to run local models (see *Hardware notes* below). The active set occupies ~6 GB resident.
 
 ```bash
 brew install ollama
@@ -283,17 +316,19 @@ The doctor pings the configured providers, confirms required models are pulled, 
 
 Set `LLM_PROVIDER=lmstudio`, `EMBEDDING_PROVIDER=lmstudio`, load equivalent models in LM Studio's UI, start its local server on `:1234`. Same `pnpm llm:doctor` confirms it.
 
-#### Free cloud — Google Gemini
+#### Free cloud — Google Gemini (default configuration)
 
-The Gemini API has a free tier (≈10 requests/min, 250 requests/day on `gemini-2.5-flash` as of mid-2026 — generous for ingest). Get a key at <https://aistudio.google.com/apikey>, then:
+The Gemini API has a free tier. `gemini-3.1-flash-lite` (the current default) runs at ≈15 RPM / 500 RPD — sufficient for a single tenant's ingest cadence. Get a key at <https://aistudio.google.com/apikey>, then:
 
 ```env
 LLM_PROVIDER=gemini
 GEMINI_API_KEY=AIza...
-# defaults: gemini-2.5-flash for both tiers — override with LLM_REASONING_MODEL=gemini-2.5-pro
+LLM_REASONING_MODEL=gemini-3.1-flash-lite
+LLM_FAST_MODEL=gemini-3.1-flash-lite
 EMBEDDING_PROVIDER=gemini
-# gemini-embedding-001 supports MRL truncation, so the `dimensions` field
-# returns vectors that fit the existing 1024-dim pgvector column.
+EMBEDDING_MODEL=gemini-embedding-001
+EMBEDDING_DIM=1024
+# gemini-embedding-001 supports MRL truncation — vectors fit the existing 1024-dim pgvector column.
 ```
 
 #### Free cloud — NVIDIA NIM
@@ -358,74 +393,68 @@ If you change `EMBEDDING_DIM` later (e.g. switching to a 768-dim or 1536-dim emb
 ### 4. Dev
 
 ```bash
-pnpm dev:web                # Next.js on :3000
-pnpm worker:ingest          # one-shot: pull new tenders from all enabled sources
-pnpm worker:match           # one-shot: hybrid retrieve + rerank + LLM score (skips rows whose content hash is unchanged)
-pnpm worker:digest          # one-shot: send digests for due tenants
-pnpm eval --tenant=<slug>   # shadow-mode eval report from MatchFeedback labels
-pnpm --filter worker dev    # OR continuous cron mode (ingest 6h, match 1h, digest 15m)
+pnpm dev:web                              # Next.js on :3000
+
+# Docker (run inside the worker container)
+docker compose exec worker pnpm ingest   # one-shot: pull new tenders from all enabled sources
+docker compose exec worker pnpm match    # one-shot: embed + score (skips unchanged rows)
+docker compose exec worker pnpm digest   # one-shot: send digests for due tenants
+
+# Local (non-Docker)
+pnpm ingest
+pnpm match
+pnpm digest
+pnpm eval --tenant=<slug>                # shadow-mode eval report from MatchFeedback labels
+pnpm --filter worker dev                 # OR continuous cron mode (ingest 6h, match 1h, digest 15m)
 ```
 
-The match worker takes 100 tenders per phase. On a fresh ingest of 1500+ tenders, run it ~15 times (or just leave the cron mode running) to drain the queue. Once the `embeddingHash` column is populated, subsequent runs are near-instant — only changed rows re-embed.
+The match worker processes up to 100 tenders per phase. On a fresh ingest of 1,000+ tenders, run it several times (or leave the cron mode running) to drain the queue. Once the `embeddingHash` column is populated, subsequent runs are near-instant — only changed rows re-embed.
 
 ## Running the complete app
 
-The app is three independent processes plus an LLM backend. They can all share one terminal session if you background them, but the cleanest layout is one shell per process so logs are readable.
+### Docker (recommended)
 
-### One-time prep (covers fresh laptop → working app)
+All three services (Postgres, web, worker) start with a single command. See *Quick start* above for the one-time DB setup. After that:
 
 ```bash
-# 1. Postgres + pgvector + Ollama
-brew install postgresql@17 pgvector ollama
-brew services start postgresql@17
+# Start everything
+docker compose up -d
+# → http://localhost:3000
 
-# 2. Database
-psql -U postgres -d postgres -c "CREATE DATABASE project_beta;"
-psql -U postgres -d project_beta -c "CREATE EXTENSION IF NOT EXISTS vector;"
+# Stop everything
+docker compose down
 
-# 3. Project deps + env
-pnpm install
-cp .env.example .env
-# Edit .env: set DATABASE_URL and SESSION_SECRET (>= 32 chars: `openssl rand -hex 24`)
+# View logs
+docker compose logs -f web
+docker compose logs -f worker
 
-# 4. Schema (raw SQL migrations applied in order)
-pnpm db:generate
-pnpm db:push
-pnpm db:vector-sql
-pnpm db:sql packages/db/src/migrations/001_pgvector.sql
-pnpm db:sql packages/db/src/migrations/002_tender_sources.sql
-pnpm db:sql packages/db/src/migrations/003_match_human_resources.sql
-pnpm db:sql packages/db/src/migrations/004_user_multi_tenant.sql
-pnpm db:fts-migrate                                                       # 005 — full-text search column
-
-# 5. LLM models (run once; ~7 GB total disk)
-ollama serve &        # start the daemon (or run in another shell)
-ollama pull qwen2.5:7b-instruct
-ollama pull qwen2.5:3b-instruct
-ollama pull mxbai-embed-large
-
-# 6. Verify the LLM stack
-pnpm llm:doctor
-# Expect: all 4 checks green (chat ping, embed ping, live 1024-dim embed, structured-output round-trip)
+# Rebuild after code changes
+docker compose up -d --build web       # web only (fast)
+docker compose up -d --build           # all services
 ```
 
-### Day-to-day startup — one-click launcher
-
-For routine "I just want to open the app" use, double-click the launcher in the project root from Finder / File Explorer:
-
-| OS | File | What it does |
-|---|---|---|
-| macOS | `start.command` | Opens one Terminal window with interleaved `[web]` / `[worker]` output. Auto-starts Postgres via `brew services` and Ollama (skipped if either is already running, or if `LLM_PROVIDER` is set to a cloud backend). Ctrl+C or closing the window stops everything cleanly. |
-| Windows | `start.cmd` | Opens up to three console windows (`ollama`, `web`, `worker`). Close each to stop that piece. Assumes Postgres is running as a Windows service. |
-
-First-time macOS use: if Finder shows "permission denied", run `chmod +x start.command` once from a terminal.
-
-### Day-to-day startup — manual (4 shells)
-
-If you prefer separate windows or need to tail an individual process:
+### Day-to-day — one-off worker commands
 
 ```bash
-# Shell 1 — Ollama (always-on)
+# Force an immediate ingest (rather than waiting for the 6-hour cron tick)
+docker compose exec worker pnpm ingest
+
+# Score new matches (each pass embeds ~100 tenders, scores up to 20 per tenant)
+docker compose exec worker pnpm match
+
+# Send digest emails manually
+docker compose exec worker pnpm digest
+
+# Run shadow-mode eval for a specific tenant
+docker compose exec worker pnpm eval --tenant=<slug>
+```
+
+### Local dev without Docker (4 shells)
+
+If you prefer to run processes directly (faster hot-reload for frontend work):
+
+```bash
+# Shell 1 — Ollama (only needed if LLM_PROVIDER=ollama)
 ollama serve
 
 # Shell 2 — Next.js web app
@@ -436,22 +465,27 @@ pnpm dev:web
 pnpm --filter worker dev
 # → ingest every 6h, match hourly, digest every 15m
 
-# Shell 4 — your terminal for running ad-hoc commands
+# Shell 4 — ad-hoc commands
+pnpm ingest    # one-shot ingest
+pnpm match     # one-shot match cycle
 ```
 
-That's it — the app is fully running. Visit `http://localhost:3000`, sign up a tenant, fill in the capability profile, and matches start flowing on the next worker tick.
+Visit `http://localhost:3000`, create a company profile, and matches start flowing on the next worker tick.
 
 ### First-run shortcut (skip waiting for cron)
 
-The cron worker takes up to 6 h to do its first ingest. To see results immediately on a fresh DB, force one full pass:
+The cron worker takes up to 6 h to do its first ingest. To see results immediately on a fresh DB:
 
 ```bash
-pnpm worker:ingest          # pulls fresh tenders from all 12 active sources (~30–90 s)
+# Docker
+docker compose exec worker pnpm ingest
+for i in {1..5}; do docker compose exec worker pnpm match; done
 
-# match worker takes 100 tenders/phase; drain the queue:
-for i in {1..18}; do pnpm worker:match; done
-# Each pass is ~1 min on local Ollama. After ~18 passes the embedding queue
-# is empty and the persistent hash cache means subsequent runs are seconds.
+# Local (non-Docker)
+pnpm ingest
+for i in {1..5}; do pnpm match; done
+# After ~5 passes the embedding queue is draining; run more to embed all tenders.
+# Once all embeddings are cached the persistent hash means subsequent runs are near-instant.
 ```
 
 ### Onboarding a tenant via API (optional, no UI needed)
@@ -483,20 +517,28 @@ curl -b /tmp/cookies.txt http://localhost:3000/api/v1/matches
 ### Stopping everything
 
 ```bash
-# Ctrl-C in each shell, or:
+# Docker
+docker compose down
+
+# Local (non-Docker) — Ctrl-C in each shell, or:
 pkill -f "next dev"
 pkill -f "tsx watch"
-brew services stop postgresql@17
-pkill -f "ollama serve"        # only if you're done for the session
+pkill -f "ollama serve"        # only if running Ollama locally
 ```
 
 ### Health checks
 
 ```bash
-pnpm llm:doctor                # LLM stack
-pg_isready -h localhost -p 5432  # Postgres
-curl -s http://localhost:11434/api/tags | jq        # Ollama models loaded
-curl -s http://localhost:3000 -o /dev/null -w '%{http_code}\n'  # Web app
+# Docker
+docker compose ps                                             # all services healthy?
+docker compose exec web pnpm llm:doctor                      # LLM stack
+docker compose exec postgres pg_isready -U postgres          # Postgres
+
+# Local (non-Docker)
+pnpm llm:doctor
+pg_isready -h localhost -p 5432
+curl -s http://localhost:11434/api/tags | jq                  # Ollama — if using local LLM
+curl -s http://localhost:3000 -o /dev/null -w '%{http_code}\n'
 ```
 
 ### Production switch (no code change)
@@ -516,16 +558,18 @@ VOYAGE_API_KEY=pa-...
 
 Or self-host Ollama on a GPU VM and only change `OLLAMA_BASE_URL`.
 
-### Hardware notes (M4 Pro, 24 GB)
+### Hardware notes (local LLM only)
 
-| Workload | Recommended local model | Resident |
+These specs apply only when running with `LLM_PROVIDER=ollama` or `LLM_PROVIDER=lmstudio`. Cloud provider setups (Gemini, Anthropic, OpenAI, etc.) have no local hardware requirements beyond running Docker.
+
+| Workload | Recommended local model | Resident RAM |
 |---|---|---|
 | Reasoning / scoring | `qwen2.5:7b-instruct` | ~5 GB |
 | Fast extraction | `qwen2.5:3b-instruct` | ~2 GB |
 | Embeddings | `mxbai-embed-large` | ~700 MB |
 | Bigger reasoning (slower) | `qwen2.5:14b-instruct` Q4 | ~9 GB |
 
-Schema-constrained decoding via Ollama's `format: <json schema>` is the key reason the matcher's structured outputs are reliable on local 7B models. Each fit-score call is ~2–6s on the M4 Pro; cached embeddings (in-memory LRU + persistent `embeddingHash` column) keep repeated runs fast.
+A machine with at least 16 GB of unified or system RAM is recommended for the 7B + embedding combination (~6 GB total resident). Schema-constrained decoding via Ollama's `format: <json schema>` is the key reason the matcher's structured outputs are reliable on local 7B models; cached embeddings (in-memory LRU + persistent `embeddingHash` column) keep repeated runs fast.
 
 ### Provider-aware score blending
 
@@ -604,7 +648,7 @@ This repo was built by a coordinated agent build:
 | Lead | `SCOPE.md`, workspace config, `packages/shared/`, integration glue, this README |
 | Backend | `prisma/schema.prisma`, `packages/db/`, `apps/web/app/api/`, `apps/web/lib/auth|api|db|services/` |
 | Ingestion | `packages/ingest/` |
-| LLM (the innovative bit) | `packages/llm/` |
+| LLM engine | `packages/llm/` |
 | Frontend | `apps/web/app/(marketing)/`, `apps/web/app/(app)/`, `apps/web/components/`, `apps/web/lib/ui/` |
 | Scheduler | `worker/`, `packages/notifications/`, capability-statement route wiring |
 
@@ -614,7 +658,7 @@ This repo was built by a coordinated agent build:
 This is an MVP that proves the architecture and the matching loop end-to-end:
 
 - ✅ 12 sources actively ingest live tenders; 14 more registered-but-disabled with documented reasons (Cloudflare, paywalls, geofences). Live PDA scrape uses a scoped TLS-relaxation for that one host (incomplete cert chain). PC.gov.pk scraper rewritten to walk tender table rows only (no footer false positives).
-- ✅ **Hybrid retrieval (dense + BM25-style FTS, RRF-fused)** + **cross-encoder rerank stage** (Voyage rerank-2.5, with no-op fallback) + LLM structured scoring — the 2025-26 industry-standard pipeline
+- ✅ **Hybrid retrieval (dense + BM25-style FTS, RRF-fused)** + **cross-encoder rerank stage** (Voyage rerank-2.5, with no-op fallback) + LLM structured scoring — current industry-standard pipeline
 - ✅ Long-tender **chunking + mean-pool aggregation** so multi-page descriptions retain signal without a schema change
 - ✅ Local LLM stack scores fit + gaps + win-prob + HR estimate as a single structured-output call; verified with qwen2.5:7b
 - ✅ Capability statement generation works end-to-end against local models

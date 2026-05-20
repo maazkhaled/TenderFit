@@ -38,6 +38,34 @@ interface OAIModelsResponse {
   error?: { message: string };
 }
 
+/**
+ * Retry a fetch-based call on 429 (rate-limit) responses.
+ * Respects the Retry-After header when present; otherwise uses exponential
+ * backoff starting at 15 s (Gemini free tier resets within ~6–15 s per window).
+ * Max 4 attempts (1 initial + 3 retries) = up to ~105 s total wait.
+ */
+async function withRateLimitRetry<T>(
+  providerName: ProviderName,
+  fn: () => Promise<{ status: number; retryAfter: string | null; result: T }>,
+): Promise<T> {
+  const MAX_ATTEMPTS = 4;
+  const BASE_DELAY_MS = 15_000;
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    const { status, retryAfter, result } = await fn();
+    if (status !== 429) return result;
+    if (attempt === MAX_ATTEMPTS) {
+      throw new ProviderError(providerName, "Rate limit exceeded after retries. Wait a moment and try again.");
+    }
+    const delayMs = retryAfter
+      ? Math.max(Number(retryAfter) * 1000, 1000)
+      : BASE_DELAY_MS * attempt;
+    console.warn(`[${providerName}] 429 rate limit — waiting ${Math.round(delayMs / 1000)}s before retry ${attempt}/${MAX_ATTEMPTS - 1}`);
+    await new Promise((r) => setTimeout(r, delayMs));
+  }
+  // unreachable
+  throw new ProviderError(providerName, "Rate limit retry loop exited unexpectedly");
+}
+
 export class OpenAICompatChatProvider implements ChatProvider {
   readonly name: ProviderName;
   constructor(
@@ -85,35 +113,41 @@ export class OpenAICompatChatProvider implements ChatProvider {
       max_tokens: req.maxTokens ?? 1500,
       temperature: req.temperature ?? 0.2,
     };
-    const res = await fetchWithTimeout(
-      `${this.cfg.baseUrl}/chat/completions`,
-      {
-        method: "POST",
-        headers: this.headers(),
-        body: JSON.stringify(body),
-      },
-      this.cfg.timeoutMs,
-    );
-    const json = (await res.json().catch(() => ({}))) as OAIChatResponse;
-    if (!res.ok || json.error) {
-      throw new ProviderError(
-        this.name,
-        `chat ${res.status}: ${json.error?.message ?? res.statusText}`,
+    return withRateLimitRetry(this.name, async () => {
+      const res = await fetchWithTimeout(
+        `${this.cfg.baseUrl}/chat/completions`,
+        { method: "POST", headers: this.headers(), body: JSON.stringify(body) },
+        this.cfg.timeoutMs,
       );
-    }
-    const content = json.choices?.[0]?.message?.content ?? "";
-    if (!content.trim()) {
-      throw new ProviderError(this.name, "empty content from /chat/completions");
-    }
-    return content;
+      if (res.status === 429) {
+        return { status: 429, retryAfter: res.headers.get("retry-after"), result: "" as string };
+      }
+      const json = (await res.json().catch(() => ({}))) as OAIChatResponse;
+      if (!res.ok || json.error) {
+        throw new ProviderError(this.name, `chat ${res.status}: ${json.error?.message ?? res.statusText}`);
+      }
+      const content = json.choices?.[0]?.message?.content ?? "";
+      if (!content.trim()) throw new ProviderError(this.name, "empty content from /chat/completions");
+      return { status: res.status, retryAfter: null, result: content };
+    });
   }
 
   async chatStructured<T = unknown>(req: ChatStructuredRequest<T>): Promise<T> {
     const model = req.tier === "fast" ? this.cfg.fastModel : this.cfg.reasoningModel;
+
+    // Gemini's OpenAI-compatible surface sometimes ignores json_schema and
+    // wraps the JSON in conversational prose (e.g. "Here is the JSON: {...}").
+    // Reinforcing the system prompt with an explicit instruction prevents this
+    // in the vast majority of cases; the extractor below handles any remainder.
+    const isGemini = this.name === "gemini";
+    const systemContent = isGemini
+      ? `${req.system}\n\nIMPORTANT: Your response MUST be a single raw JSON object with no markdown, no prose, no code fences — just the JSON.`
+      : req.system;
+
     const body = {
       model,
       messages: [
-        { role: "system", content: req.system },
+        { role: "system", content: systemContent },
         { role: "user", content: req.user },
       ],
       max_tokens: req.maxTokens ?? 1500,
@@ -131,44 +165,62 @@ export class OpenAICompatChatProvider implements ChatProvider {
         },
       },
     };
-    const res = await fetchWithTimeout(
-      `${this.cfg.baseUrl}/chat/completions`,
-      {
-        method: "POST",
-        headers: this.headers(),
-        body: JSON.stringify(body),
-      },
-      this.cfg.timeoutMs,
-    );
-    const json = (await res.json().catch(() => ({}))) as OAIChatResponse;
-    if (!res.ok || json.error) {
-      throw new ProviderError(
-        this.name,
-        `chatStructured ${res.status}: ${json.error?.message ?? res.statusText}`,
+    return withRateLimitRetry(this.name, async () => {
+      const res = await fetchWithTimeout(
+        `${this.cfg.baseUrl}/chat/completions`,
+        { method: "POST", headers: this.headers(), body: JSON.stringify(body) },
+        this.cfg.timeoutMs,
       );
-    }
-    const raw = json.choices?.[0]?.message?.content ?? "";
-    if (!raw.trim()) {
-      throw new ProviderError(this.name, "empty content from structured /chat/completions");
-    }
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(raw);
-    } catch (err) {
-      throw new ProviderError(
-        this.name,
-        `non-JSON output despite response_format: ${truncate(raw, 200)}`,
-        err,
-      );
-    }
-    if (req.validate) {
-      try {
-        return req.validate(parsed);
-      } catch (err) {
-        throw new ProviderError(this.name, `validate failed: ${errMsg(err)}`, err);
+      if (res.status === 429) {
+        return { status: 429, retryAfter: res.headers.get("retry-after"), result: null as unknown as T };
       }
-    }
-    return parsed as T;
+      const json = (await res.json().catch(() => ({}))) as OAIChatResponse;
+      if (!res.ok || json.error) {
+        throw new ProviderError(
+          this.name,
+          `chatStructured ${res.status}: ${json.error?.message ?? res.statusText}`,
+        );
+      }
+      const raw = json.choices?.[0]?.message?.content ?? "";
+      if (!raw.trim()) {
+        throw new ProviderError(this.name, "empty content from structured /chat/completions");
+      }
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(raw);
+      } catch {
+        // Fallback: some providers (notably Gemini) add preamble text before the
+        // JSON. Find the first { or [ and extract the balanced JSON block.
+        const extracted = extractJsonBlock(raw);
+        if (extracted !== null) {
+          try {
+            parsed = JSON.parse(extracted);
+          } catch (err2) {
+            throw new ProviderError(
+              this.name,
+              `non-JSON output despite response_format: ${truncate(raw, 200)}`,
+              err2,
+            );
+          }
+        } else {
+          throw new ProviderError(
+            this.name,
+            `non-JSON output despite response_format: ${truncate(raw, 200)}`,
+          );
+        }
+      }
+      let result: T;
+      if (req.validate) {
+        try {
+          result = req.validate(parsed);
+        } catch (err) {
+          throw new ProviderError(this.name, `validate failed: ${errMsg(err)}`, err);
+        }
+      } else {
+        result = parsed as T;
+      }
+      return { status: res.status, retryAfter: null, result };
+    });
   }
 }
 
@@ -279,4 +331,35 @@ function errMsg(err: unknown): string {
 }
 function truncate(s: string, n: number): string {
   return s.length <= n ? s : `${s.slice(0, n)}…`;
+}
+
+/**
+ * Extract the first balanced JSON object or array from a string that may
+ * contain leading/trailing prose (common with Gemini's OAI-compat endpoint).
+ * Returns null if no balanced block is found.
+ */
+function extractJsonBlock(s: string): string | null {
+  const start = Math.min(
+    s.indexOf("{") === -1 ? Infinity : s.indexOf("{"),
+    s.indexOf("[") === -1 ? Infinity : s.indexOf("["),
+  );
+  if (!isFinite(start)) return null;
+  const open = s[start] === "{" ? "{" : "[";
+  const close = open === "{" ? "}" : "]";
+  let depth = 0;
+  let inString = false;
+  let escape = false;
+  for (let i = start; i < s.length; i++) {
+    const ch = s[i];
+    if (escape) { escape = false; continue; }
+    if (ch === "\\" && inString) { escape = true; continue; }
+    if (ch === '"') { inString = !inString; continue; }
+    if (inString) continue;
+    if (ch === open) depth++;
+    else if (ch === close) {
+      depth--;
+      if (depth === 0) return s.slice(start, i + 1);
+    }
+  }
+  return null;
 }

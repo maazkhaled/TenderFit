@@ -6,6 +6,11 @@
 generator client {
   provider        = "prisma-client-js"
   previewFeatures = ["postgresqlExtensions"]
+  // Explicit binary target prevents Prisma from trying to fetch/verify the
+  // engine binary from binaries.prisma.sh during `docker compose build`.
+  // Without this, `prisma generate` does a live SHA256 check against the CDN
+  // which times out inside the Docker build network on macOS (ARM64 Alpine).
+  binaryTargets   = ["native", "linux-musl-arm64-openssl-3.0.x"]
 }
 
 datasource db {

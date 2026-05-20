@@ -13,14 +13,10 @@ ALTER TABLE "User" DROP CONSTRAINT IF EXISTS "User_email_key";
 -- INDEX rather than a CONSTRAINT.
 DROP INDEX IF EXISTS "User_email_key";
 
-DO $$
-BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_constraint WHERE conname = 'User_email_tenantId_key'
-  ) THEN
-    ALTER TABLE "User"
-      ADD CONSTRAINT "User_email_tenantId_key" UNIQUE ("email", "tenantId");
-  END IF;
-END$$;
+-- Prisma db push may create this as either a UNIQUE CONSTRAINT or a plain
+-- UNIQUE INDEX depending on the database state. A unique index enforces the
+-- same invariant and keeps the migration cleanly re-runnable in both cases.
+CREATE UNIQUE INDEX IF NOT EXISTS "User_email_tenantId_key"
+  ON "User" ("email", "tenantId");
 
 CREATE INDEX IF NOT EXISTS "User_email_idx" ON "User" ("email");

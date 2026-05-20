@@ -6,11 +6,21 @@ export { requireSession } from "./auth";
 
 type Handler<T> = (req: Request, ctx: T) => Promise<Response> | Response;
 
+function isNextDynamicUsageError(err: unknown): boolean {
+  return (
+    typeof err === "object" &&
+    err !== null &&
+    "digest" in err &&
+    err.digest === "DYNAMIC_SERVER_USAGE"
+  );
+}
+
 export function apiHandler<T = unknown>(handler: Handler<T>) {
   return async (req: Request, ctx: T): Promise<Response> => {
     try {
       return await handler(req, ctx);
     } catch (err) {
+      if (isNextDynamicUsageError(err)) throw err;
       if (err instanceof ZodError) {
         return NextResponse.json(
           { error: "invalid_body", issues: err.issues },

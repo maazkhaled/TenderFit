@@ -1,0 +1,99 @@
+# Project Beta — Docker Compose stack
+#
+# Services:
+#   postgres : Postgres 16 with pgvector. Stores tenders, profiles, matches.
+#   web      : Next.js 14 production server. Tenant dashboard + /api/v1/*.
+#   worker   : Long-running cron (ingest every 6h, match hourly, digest 15m).
+#   caddy    : Reverse proxy + automatic HTTPS (commented out by default;
+#              enable on the production VM once a domain points at it).
+#
+# Local usage:
+#   1. Fill GEMINI_API_KEY in .env (the only required key — Voyage already set).
+#   2. docker compose up -d
+#   3. First-run only: `docker compose exec web pnpm db:push` then
+#                     `docker compose exec web pnpm db:sql packages/db/src/migrations/001_pgvector.sql`
+#                     (and the other migrations as needed).
+#   4. Browse http://localhost:3000
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: pb_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: project_beta
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    # Exposed on the host so you can `psql -h localhost` for debugging.
+    # Remove this `ports` block on the production VM.
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d project_beta"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  web:
+    build:
+      context: .
+      target: web
+    container_name: pb_web
+    restart: unless-stopped
+    working_dir: /app
+    command: ["pnpm", "--filter", "web", "start"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      # Override .env so the app talks to postgres over the compose network
+      # instead of localhost. The Prisma URL points at the service hostname.
+      DATABASE_URL: "postgresql://postgres:postgres@postgres:5432/project_beta?schema=public"
+      NODE_ENV: production
+      APP_URL: "http://localhost:3000"
+    ports:
+      - "3000:3000"
+
+  worker:
+    build:
+      context: .
+      target: worker
+    container_name: pb_worker
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      DATABASE_URL: "postgresql://postgres:postgres@postgres:5432/project_beta?schema=public"
+      NODE_ENV: production
+
+  # --- Caddy reverse proxy + auto-TLS (production only) -------------------
+  # Uncomment when deploying to a VM with a real domain pointing at it.
+  # Set DOMAIN and EMAIL in the environment, then `docker compose up -d`.
+  # Caddy will fetch a Let's Encrypt cert automatically and proxy to web.
+  #
+  # caddy:
+  #   image: caddy:2-alpine
+  #   container_name: pb_caddy
+  #   restart: unless-stopped
+  #   depends_on:
+  #     - web
+  #   ports:
+  #     - "80:80"
+  #     - "443:443"
+  #   environment:
+  #     DOMAIN: "tenders.yourcompany.com"
+  #     EMAIL: "you@yourcompany.com"
+  #   volumes:
+  #     - ./Caddyfile:/etc/caddy/Caddyfile:ro
+  #     - caddy_data:/data
+  #     - caddy_config:/config
+
+volumes:
+  pgdata:
+  # caddy_data:
+  # caddy_config:

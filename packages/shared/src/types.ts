@@ -129,6 +129,13 @@ export interface DigestPayload {
   tenantId: string;
   companyName: string;
   generatedAt: Date;
+  /**
+   * The actual fit-score threshold used to select the matches in this payload.
+   * Comes from DigestSchedule.minFitScore (or DEFAULT_MIN_FIT_SCORE as fallback
+   * when no schedule row exists). Exposed in the payload so the email renderer
+   * can show the real number rather than a build-time constant.
+   */
+  minFitScore: number;
   matches: Array<{
     matchId: string;
     tenderTitle: string;

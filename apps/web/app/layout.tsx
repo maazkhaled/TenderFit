@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import "./globals.css";
 
 export const metadata = {
-  title: "Project Beta",
+  title: "TenderFit",
   description: "Tender / RFP matching for IT companies.",
 };
 

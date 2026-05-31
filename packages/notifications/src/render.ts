@@ -1,4 +1,4 @@
-import { DEFAULT_MIN_FIT_SCORE, type DigestPayload } from "@beta/shared";
+import { type DigestPayload } from "@beta/shared";
 
 const FONT_STACK =
   "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif";
@@ -57,7 +57,11 @@ function fitScoreBadge(score: number): string {
 
 export function renderDigestHtml(payload: DigestPayload): string {
   const base = appUrl();
-  const minScore = DEFAULT_MIN_FIT_SCORE;
+  // Min-fit threshold comes from the payload (set by buildDigestForTenant from
+  // the tenant's DigestSchedule.minFitScore). We avoid hardcoding the constant
+  // here so the summary line always reflects the *actual* threshold used to
+  // filter the matches included in this email.
+  const minScore = payload.minFitScore;
   const summary = `${payload.matches.length} new match${payload.matches.length === 1 ? "" : "es"} above your ${minScore}+ fit threshold`;
 
   const blocks = payload.matches
@@ -94,7 +98,7 @@ export function renderDigestHtml(payload: DigestPayload): string {
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Project Beta Digest</title>
+  <title>TenderFit Digest</title>
 </head>
 <body style="margin:0;padding:0;background:#f3f4f6;font-family:${FONT_STACK};">
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f3f4f6;padding:24px 12px;">

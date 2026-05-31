@@ -27,7 +27,7 @@ export default function LandingPage() {
         <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-6">
           <div className="flex items-center gap-2 text-sm font-semibold">
             <Sparkles className="h-4 w-4 text-indigo-600" />
-            Project Beta
+            TenderFit
           </div>
           <div className="flex items-center gap-2">
             <Link href="/login">
@@ -98,7 +98,7 @@ export default function LandingPage() {
       </section>
 
       <footer className="border-t border-zinc-100 py-8 text-center text-xs text-zinc-500">
-        Project Beta — official-source, license-friendly tender intelligence.
+        TenderFit — official-source, license-friendly tender intelligence.
       </footer>
     </div>
   );

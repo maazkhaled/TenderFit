@@ -55,7 +55,7 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
         <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-6">
           <Link href="/" className="flex items-center gap-2 text-sm font-semibold tracking-tight">
             <Sparkles className="h-4 w-4 text-indigo-600" />
-            Project Beta
+            TenderFit
           </Link>
           <nav className="flex items-center gap-1">
             {NAV.map(({ href, label, icon: Icon }) => (

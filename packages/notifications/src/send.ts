@@ -15,7 +15,7 @@ export async function sendDigest(
   html: string,
 ): Promise<SendResult> {
   const apiKey = process.env.RESEND_API_KEY;
-  const from = process.env.DIGEST_FROM_EMAIL ?? "Project Beta <digest@projectbeta.dev>";
+  const from = process.env.DIGEST_FROM_EMAIL ?? "TenderFit <digest@tenderfit.dev>";
   const to = recipientFor(payload);
   const subject = `${payload.matches.length} new match${payload.matches.length === 1 ? "" : "es"} for ${payload.companyName}`;
 

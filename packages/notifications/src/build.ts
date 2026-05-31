@@ -41,16 +41,19 @@ export async function buildDigestForTenant(
     tenantId,
     companyName: tenant.companyName,
     generatedAt: new Date(),
+    // Surface the effective threshold so the email renderer can show it
+    // verbatim instead of falling back to the build-time DEFAULT constant.
+    minFitScore,
     matches: matches.map((m: any) => ({
       matchId: m.id,
       tenderTitle: m.tender.title,
       tenderUrl: m.tender.url,
       buyer: m.tender.buyer,
       deadlineAt: m.tender.deadlineAt,
-          fitScore: m.fitScore,
-          rationale: Array.isArray(m.rationale) ? m.rationale.slice(0, 3) : [],
-          winProbability: m.winProbability,
-          humanResourcesEstimate: m.humanResourcesEstimate as any,
-        })),
+      fitScore: m.fitScore,
+      rationale: Array.isArray(m.rationale) ? m.rationale.slice(0, 3) : [],
+      winProbability: m.winProbability,
+      humanResourcesEstimate: m.humanResourcesEstimate as any,
+    })),
   };
 }

@@ -35,7 +35,7 @@ export default async function LoginPage({
             className="flex items-center gap-2 text-sm font-semibold tracking-tight"
           >
             <Sparkles className="h-4 w-4 text-indigo-600" />
-            Project Beta
+            TenderFit
           </Link>
         </div>
       </header>

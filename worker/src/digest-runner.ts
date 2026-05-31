@@ -79,8 +79,11 @@ export async function runDigest(argv: string[] = process.argv): Promise<void> {
     const dueNow = isDueNow(
       {
         frequency: s.frequency,
+        intervalDays: s.intervalDays,
         hourLocal: s.hourLocal,
+        hourLocalEnd: s.hourLocalEnd,
         dayOfWeek: s.dayOfWeek,
+        dayOfMonth: s.dayOfMonth,
         timezone: s.timezone,
         enabled: s.enabled,
         lastSentAt: s.lastSentAt,

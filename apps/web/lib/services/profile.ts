@@ -32,6 +32,7 @@ export async function upsertProfileForTenant(
     budgetMinUsd: input.budgetRangeUsd.min,
     budgetMaxUsd: input.budgetRangeUsd.max,
     languages: input.languages,
+    ignoreLocation: input.ignoreLocation,
     embeddingStatus: "pending" as const,
   };
 

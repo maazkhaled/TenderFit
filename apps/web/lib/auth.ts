@@ -80,6 +80,29 @@ export async function requireSession(): Promise<{
   return s;
 }
 
+/**
+ * Email-only session check.
+ *
+ * Returns the userEmail if the visitor has signed in (regardless of whether
+ * they've created their first tenant yet), or null otherwise. Use this in
+ * layouts that need to distinguish "anonymous → /login" from "signed-in
+ * but no tenant → /onboard".
+ *
+ * Distinct from getSession (which also requires an active tenant) so the
+ * post-login → onboard path doesn't redirect-loop.
+ */
+export async function getEmailOnlySession(): Promise<{
+  userEmail: string;
+  activeTenantId: string | null;
+} | null> {
+  const session = await readSession();
+  if (!session.userEmail) return null;
+  return {
+    userEmail: session.userEmail,
+    activeTenantId: session.activeTenantId ?? null,
+  };
+}
+
 function slugify(input: string): string {
   return (
     input

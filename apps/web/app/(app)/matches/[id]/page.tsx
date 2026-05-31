@@ -173,13 +173,17 @@ export default async function MatchDetailPage({
         <aside className="space-y-6">
           <Card>
             <CardHeader>
-              <CardTitle>Why this fits</CardTitle>
+              <CardTitle>Match analysis</CardTitle>
             </CardHeader>
             <CardBody>
+              {/* Renamed from "Why this fits" — the LLM rationale is a balanced
+                  3-bullet explanation of the fit score and may include negative
+                  observations for low-scoring matches, so the heading should be
+                  neutral. Bullet dots are zinc (also neutral) for the same reason. */}
               <ul className="space-y-2.5">
                 {match.rationale.map((line, i) => (
                   <li key={i} className="flex items-start gap-2.5 text-sm leading-snug text-ink-soft">
-                    <span className="mt-1.5 inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-indigo-500" />
+                    <span className="mt-1.5 inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-zinc-400" />
                     {line}
                   </li>
                 ))}

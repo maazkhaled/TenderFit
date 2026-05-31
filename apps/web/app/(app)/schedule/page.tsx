@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Loader2, CheckCircle2 } from "lucide-react";
 import { DigestScheduleInputSchema, type DigestScheduleInput } from "@beta/shared";
 import { Card, CardBody, CardHeader, CardTitle, CardDescription } from "@/components/ui/Card";
@@ -11,16 +11,32 @@ import { Field } from "@/components/ui/Input";
 import { commonTimezones } from "@/lib/ui/countries";
 import { cn } from "@/lib/ui/cn";
 
+type Frequency = DigestScheduleInput["frequency"];
+
 const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+
+const FREQUENCIES: Array<{ id: Frequency; label: string; hint: string }> = [
+  { id: "daily", label: "Daily", hint: "Once per day, inside your time window." },
+  { id: "every_n_days", label: "Every N days", hint: "Custom interval — e.g. every 2, 3, or 7 days." },
+  { id: "weekly", label: "Weekly", hint: "Once a week on the day you choose." },
+  { id: "monthly", label: "Monthly", hint: "Once a month on the calendar day you choose." },
+];
 
 const DEFAULT: DigestScheduleInput = {
   frequency: "daily",
+  intervalDays: 2,
   hourLocal: 8,
+  hourLocalEnd: 10,
   dayOfWeek: null,
+  dayOfMonth: null,
   timezone: "UTC",
   enabled: true,
   minFitScore: 60,
 };
+
+function hourLabel(h: number): string {
+  return `${String(h).padStart(2, "0")}:00`;
+}
 
 export default function SchedulePage() {
   const [state, setState] = useState<DigestScheduleInput>(DEFAULT);
@@ -39,8 +55,20 @@ export default function SchedulePage() {
         if (res.ok) {
           const data = await res.json();
           const schedule = data.schedule ?? data;
-          const parsed = DigestScheduleInputSchema.safeParse(schedule);
-          if (!cancelled && parsed.success) setState(parsed.data);
+          if (schedule) {
+            // Coerce legacy rows missing the new fields so the form doesn't
+            // explode if the API returns a pre-migration shape.
+            const filled = {
+              ...DEFAULT,
+              ...schedule,
+              hourLocalEnd:
+                schedule.hourLocalEnd ?? Math.min(23, (schedule.hourLocal ?? 8) + 2),
+              intervalDays: schedule.intervalDays ?? 2,
+              dayOfMonth: schedule.dayOfMonth ?? null,
+            };
+            const parsed = DigestScheduleInputSchema.safeParse(filled);
+            if (!cancelled && parsed.success) setState(parsed.data);
+          }
         }
       } catch {
         // keep defaults
@@ -53,12 +81,16 @@ export default function SchedulePage() {
     };
   }, []);
 
+  const validation = useMemo(
+    () => DigestScheduleInputSchema.safeParse(state),
+    [state],
+  );
+
   async function save() {
     setSaving(true);
     setError(null);
-    const parsed = DigestScheduleInputSchema.safeParse(state);
-    if (!parsed.success) {
-      setError(parsed.error.issues[0]?.message ?? "Invalid schedule.");
+    if (!validation.success) {
+      setError(validation.error.issues[0]?.message ?? "Invalid schedule.");
       setSaving(false);
       return;
     }
@@ -66,7 +98,7 @@ export default function SchedulePage() {
       const res = await fetch("/api/v1/schedule", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(parsed.data),
+        body: JSON.stringify(validation.data),
       });
       if (!res.ok) throw new Error(`Failed: ${res.status}`);
       setSavedAt(Date.now());
@@ -84,6 +116,18 @@ export default function SchedulePage() {
     setState((prev) => ({ ...prev, [key]: value }));
   }
 
+  function setFrequency(freq: Frequency) {
+    setState((p) => ({
+      ...p,
+      frequency: freq,
+      // Backfill required-for-mode fields with sensible defaults whenever the
+      // user switches; lets them flip back and forth without losing context.
+      dayOfWeek: freq === "weekly" ? (p.dayOfWeek ?? 1) : p.dayOfWeek,
+      dayOfMonth: freq === "monthly" ? (p.dayOfMonth ?? 1) : p.dayOfMonth,
+      intervalDays: freq === "every_n_days" ? (p.intervalDays || 2) : p.intervalDays,
+    }));
+  }
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-20 text-zinc-500">
@@ -92,12 +136,16 @@ export default function SchedulePage() {
     );
   }
 
+  const windowHours = Math.max(0, state.hourLocalEnd - state.hourLocal) + 1;
+  const windowLabel = `${hourLabel(state.hourLocal)} – ${hourLabel(state.hourLocalEnd)} (${windowHours}h window)`;
+
   return (
     <div className="max-w-2xl space-y-8">
       <header className="space-y-2">
         <h1 className="text-3xl font-semibold tracking-tight">Digest schedule</h1>
         <p className="text-sm text-zinc-600">
-          Choose when to receive your tender digest. Always scheduled, never always-on.
+          Choose how often, and inside what time window, you want digest emails.
+          Always scheduled, never always-on.
         </p>
       </header>
 
@@ -107,29 +155,42 @@ export default function SchedulePage() {
           <CardDescription>How often to deliver the digest.</CardDescription>
         </CardHeader>
         <CardBody className="space-y-5">
-          <div className="flex items-center gap-2">
-            {(["daily", "weekly"] as const).map((freq) => (
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+            {FREQUENCIES.map(({ id, label }) => (
               <button
-                key={freq}
+                key={id}
                 type="button"
-                onClick={() =>
-                  setState((p) => ({
-                    ...p,
-                    frequency: freq,
-                    dayOfWeek: freq === "weekly" ? (p.dayOfWeek ?? 1) : null,
-                  }))
-                }
+                onClick={() => setFrequency(id)}
                 className={cn(
-                  "rounded-md border px-4 py-2 text-sm font-medium capitalize transition-colors",
-                  state.frequency === freq
+                  "rounded-md border px-3 py-2 text-sm font-medium transition-colors",
+                  state.frequency === id
                     ? "border-indigo-300 bg-indigo-50 text-indigo-800"
                     : "border-zinc-200 bg-white text-ink-soft hover:bg-zinc-50",
                 )}
               >
-                {freq}
+                {label}
               </button>
             ))}
           </div>
+
+          <p className="text-xs text-zinc-500">
+            {FREQUENCIES.find((f) => f.id === state.frequency)?.hint}
+          </p>
+
+          {state.frequency === "every_n_days" && (
+            <Field
+              label={`Send every ${state.intervalDays} ${state.intervalDays === 1 ? "day" : "days"}`}
+              hint="1 = daily, 2 = every other day, 7 = weekly, …"
+            >
+              <Slider
+                min={1}
+                max={30}
+                step={1}
+                value={state.intervalDays}
+                onChange={(e) => patch("intervalDays", Number(e.target.value))}
+              />
+            </Field>
+          )}
 
           {state.frequency === "weekly" && (
             <Field label="Day of week">
@@ -146,32 +207,92 @@ export default function SchedulePage() {
             </Field>
           )}
 
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <Field label="Hour of day (local)">
+          {state.frequency === "monthly" && (
+            <Field
+              label="Day of month"
+              hint="Choosing 31 means 'last day of month' in short months."
+            >
               <Select
-                value={String(state.hourLocal)}
-                onChange={(e) => patch("hourLocal", Number(e.target.value))}
+                value={String(state.dayOfMonth ?? 1)}
+                onChange={(e) => patch("dayOfMonth", Number(e.target.value))}
               >
-                {Array.from({ length: 24 }, (_, h) => (
-                  <option key={h} value={h}>
-                    {String(h).padStart(2, "0")}:00
+                {Array.from({ length: 31 }, (_, i) => i + 1).map((d) => (
+                  <option key={d} value={d}>
+                    {d}
                   </option>
                 ))}
               </Select>
             </Field>
-            <Field label="Timezone">
+          )}
+        </CardBody>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Delivery time window</CardTitle>
+          <CardDescription>
+            The digest will be sent any time inside this local window. Pick a
+            range you're happy receiving emails in — anywhere from a 1-hour
+            slot to a full workday.
+          </CardDescription>
+        </CardHeader>
+        <CardBody className="space-y-5">
+          <p className="text-sm font-medium text-zinc-700">{windowLabel}</p>
+
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <Field label="Window start (local)">
               <Select
-                value={state.timezone}
-                onChange={(e) => patch("timezone", e.target.value)}
+                value={String(state.hourLocal)}
+                onChange={(e) => {
+                  const start = Number(e.target.value);
+                  setState((p) => ({
+                    ...p,
+                    hourLocal: start,
+                    // Auto-bump the end if it'd otherwise be invalid.
+                    hourLocalEnd: Math.max(start, p.hourLocalEnd),
+                  }));
+                }}
               >
-                {timezones.map((tz) => (
-                  <option key={tz} value={tz}>
-                    {tz}
+                {Array.from({ length: 24 }, (_, h) => (
+                  <option key={h} value={h}>
+                    {hourLabel(h)}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+            <Field label="Window end (local)">
+              <Select
+                value={String(state.hourLocalEnd)}
+                onChange={(e) => {
+                  const end = Number(e.target.value);
+                  setState((p) => ({
+                    ...p,
+                    hourLocalEnd: end,
+                    hourLocal: Math.min(end, p.hourLocal),
+                  }));
+                }}
+              >
+                {Array.from({ length: 24 }, (_, h) => (
+                  <option key={h} value={h}>
+                    {hourLabel(h)}
                   </option>
                 ))}
               </Select>
             </Field>
           </div>
+
+          <Field label="Timezone">
+            <Select
+              value={state.timezone}
+              onChange={(e) => patch("timezone", e.target.value)}
+            >
+              {timezones.map((tz) => (
+                <option key={tz} value={tz}>
+                  {tz}
+                </option>
+              ))}
+            </Select>
+          </Field>
         </CardBody>
       </Card>
 
@@ -226,7 +347,7 @@ export default function SchedulePage() {
         ) : (
           <span />
         )}
-        <Button onClick={save} disabled={saving}>
+        <Button onClick={save} disabled={saving || !validation.success}>
           {saving ? "Saving…" : "Save schedule"}
         </Button>
       </div>

@@ -69,12 +69,22 @@ model CapabilityProfile {
   budgetMinUsd    Int      @default(0)
   budgetMaxUsd    Int      @default(0)
   languages       String[] @default([])
+  // When true, geography is excluded from scoring/retrieval. See
+  // CapabilityProfile.ignoreLocation in packages/shared/src/types.ts.
+  // Flipping this flag invalidates the profile embedding hash because the
+  // flattened-for-embedding text changes; the worker will re-embed on next tick.
+  ignoreLocation  Boolean  @default(false)
   embeddingStatus EmbeddingStatus @default(pending)
   // sha256 of (provider:model + flatten-text). When unchanged, embed is skipped.
   embeddingHash   String?
   // provider:model that produced the current embedding. Used to invalidate when env changes.
   embeddingModel  String?
-  // Embedding column added via raw SQL migration: ALTER TABLE "CapabilityProfile" ADD COLUMN embedding vector(1024);
+  // The actual vector column is `vector(1024)` (pgvector), added by raw SQL
+  // migration packages/db/src/migrations/001_pgvector.sql. Declaring it as
+  // Unsupported here tells Prisma the column exists so `db push` does not try
+  // to drop it. The Prisma client cannot query Unsupported columns directly —
+  // that's fine, all vector operations go through $queryRaw in @beta/db.
+  embedding       Unsupported("vector(1024)")?
   updatedAt       DateTime @updatedAt
   createdAt       DateTime @default(now())
 
@@ -138,7 +148,12 @@ model Tender {
   deadlineAt   DateTime?
   language     String       @default("en")
   raw          Json
-  // Embedding column added via raw SQL migration: ALTER TABLE "Tender" ADD COLUMN embedding vector(1024);
+  // pgvector + tsvector columns are added by raw SQL migrations
+  // (001_pgvector.sql and 005_tender_fts.sql). Declared as Unsupported so
+  // Prisma's `db push` does not see them as drift and try to drop them.
+  // All reads/writes happen via $queryRaw inside @beta/db.
+  embedding    Unsupported("vector(1024)")?
+  fts_doc      Unsupported("tsvector")?
   embeddingStatus EmbeddingStatus @default(pending)
   embeddingHash   String?
   embeddingModel  String?
@@ -197,15 +212,25 @@ model MatchFeedback {
 
 enum DigestFrequency {
   daily
+  every_n_days
   weekly
+  monthly
 }
 
 model DigestSchedule {
   id            String          @id @default(cuid())
   tenantId      String          @unique
   frequency     DigestFrequency @default(weekly)
-  hourLocal     Int             @default(8)   // 0..23
+  /// Number of days between sends when frequency = every_n_days. Ignored for other modes.
+  intervalDays  Int             @default(2)
+  /// Start of the preferred local delivery window, 0..23.
+  /// (Kept as `hourLocal` for back-compat with existing rows; semantically the window opens here.)
+  hourLocal     Int             @default(8)
+  /// End of the preferred local delivery window, 0..23. Must be >= hourLocal.
+  /// The worker may fire any time the local hour is in [hourLocal, hourLocalEnd].
+  hourLocalEnd  Int             @default(10)
   dayOfWeek     Int?            // 0=Sun..6=Sat (weekly only)
+  dayOfMonth    Int?            // 1..31 (monthly only). 31 = "last day of month" in worker logic.
   timezone      String          @default("UTC")
   enabled       Boolean         @default(true)
   lastSentAt    DateTime?

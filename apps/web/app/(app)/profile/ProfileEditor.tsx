@@ -77,6 +77,9 @@ export function ProfileEditor({ tenants, activeTenantId, hasExistingProfile, ini
   const [pastProjects, setPastProjects] = useState<PastProjectDraft[]>(
     projectsFromInput(initial.pastProjects),
   );
+  const [ignoreLocation, setIgnoreLocation] = useState<boolean>(
+    initial.ignoreLocation ?? false,
+  );
 
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -105,6 +108,7 @@ export function ProfileEditor({ tenants, activeTenantId, hasExistingProfile, ini
           sector: p.sector.trim() || undefined,
           valueUsd: p.valueUsd ? Number(p.valueUsd) : undefined,
         })),
+      ignoreLocation,
     };
     const parsed = CapabilityProfileSchema.safeParse(candidate);
     return parsed.success ? parsed.data : null;
@@ -122,6 +126,7 @@ export function ProfileEditor({ tenants, activeTenantId, hasExistingProfile, ini
     budgetMax,
     languages,
     pastProjects,
+    ignoreLocation,
   ]);
 
   function toggleGeography(code: string) {
@@ -145,6 +150,7 @@ export function ProfileEditor({ tenants, activeTenantId, hasExistingProfile, ini
     setBudgetMax(String(p.budgetRangeUsd?.max ?? 0));
     setLanguages(p.languages.length ? p.languages : ["en"]);
     setPastProjects(projectsFromInput(p.pastProjects));
+    setIgnoreLocation(p.ignoreLocation ?? false);
   }
 
   async function onSubmit(e: React.FormEvent) {
@@ -259,8 +265,44 @@ export function ProfileEditor({ tenants, activeTenantId, hasExistingProfile, ini
           <CardTitle>Geographies</CardTitle>
           <CardDescription>Where you can deliver. Leave empty for global.</CardDescription>
         </CardHeader>
-        <CardBody>
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4">
+        <CardBody className="space-y-4">
+          <label
+            htmlFor="ignoreLocation"
+            className={cn(
+              "flex cursor-pointer items-start gap-3 rounded-md border p-3 transition-colors",
+              ignoreLocation
+                ? "border-indigo-300 bg-indigo-50"
+                : "border-zinc-200 bg-white hover:bg-zinc-50",
+            )}
+          >
+            <input
+              id="ignoreLocation"
+              type="checkbox"
+              checked={ignoreLocation}
+              onChange={(e) => setIgnoreLocation(e.target.checked)}
+              className="mt-1 h-4 w-4 cursor-pointer rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500"
+            />
+            <div className="space-y-1">
+              <div className="text-sm font-medium text-zinc-900">
+                Open to international collaboration / JVs — ignore location when scoring
+              </div>
+              <div className="text-xs text-zinc-600">
+                When enabled, country / geography is excluded from match scoring,
+                the win-probability heuristic, and the LLM prompt. Useful if you
+                actively want to bid abroad or partner with foreign firms. Saved
+                geographies below are kept on disk but ignored by the matcher.
+                Changing this triggers a re-embed on the next worker tick.
+              </div>
+            </div>
+          </label>
+
+          <div
+            className={cn(
+              "grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 transition-opacity",
+              ignoreLocation && "opacity-50",
+            )}
+            aria-disabled={ignoreLocation}
+          >
             {COMMON_COUNTRIES.map((c) => {
               const active = geographies.includes(c.code);
               return (
@@ -268,11 +310,13 @@ export function ProfileEditor({ tenants, activeTenantId, hasExistingProfile, ini
                   key={c.code}
                   type="button"
                   onClick={() => toggleGeography(c.code)}
+                  disabled={ignoreLocation}
                   className={cn(
                     "flex items-center gap-2 rounded-md border px-3 py-2 text-left text-sm transition-colors",
                     active
                       ? "border-indigo-300 bg-indigo-50 text-indigo-800"
                       : "border-zinc-200 bg-white text-ink-soft hover:bg-zinc-50",
+                    ignoreLocation && "cursor-not-allowed",
                   )}
                 >
                   <span aria-hidden>{flagFor(c.code)}</span>

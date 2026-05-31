@@ -35,7 +35,7 @@ export async function generateCapabilityStatement(
   const userContent = [
     renderProfileForLLM(profile),
     "",
-    renderTenderForLLM(tender),
+    renderTenderForLLM(tender, { ignoreLocation: profile.ignoreLocation }),
     "",
     `# Match assessment (already produced)`,
     `Fit score: ${matchResult.fitScore}/100`,

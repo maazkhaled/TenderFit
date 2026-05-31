@@ -15,6 +15,7 @@ import { urbanUnitPkAdapter } from "./adapters/urban_unit_pk.ts";
 import { ignitePkAdapter } from "./adapters/ignite_pk.ts";
 import { undpAdapter } from "./adapters/undp.ts";
 import { pdaPkAdapter } from "./adapters/pda_pk.ts";
+import { sopPkAdapter } from "./adapters/sop_pk.ts";
 
 export const adapters: Record<TenderSourceId, IngestAdapter> = {
   world_bank: worldBankAdapter,
@@ -60,11 +61,11 @@ export const adapters: Record<TenderSourceId, IngestAdapter> = {
   ),
   planning_commission_pk: planningCommissionPkAdapter,
   urban_unit_pk: urbanUnitPkAdapter,
-  sop_pk: disabledAdapter(
-    "sop_pk",
-    "Survey of Pakistan",
-    "Public URL redirects to a malformed/unresolvable host; disabled until the official tender URL is corrected.",
-  ),
+  // Re-enabled 2026-05. Adapter is complete; if the upstream URL is still
+  // returning a malformed redirect from the office network, runAdapter will
+  // log the fetch error and the rest of the ingest run continues — flip back
+  // to disabledAdapter() if the URL has not been corrected.
+  sop_pk: sopPkAdapter,
   ppwd_pk: disabledAdapter(
     "ppwd_pk",
     "Pakistan Public Works Department",

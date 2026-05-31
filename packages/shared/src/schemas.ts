@@ -64,6 +64,10 @@ export const CapabilityProfileSchema = z.object({
     max: z.number().int().nonnegative(),
   }),
   languages: z.array(z.string()).default(["en"]),
+  // Default false to preserve existing tenant behaviour. When true, geography
+  // is excluded from embeddings, prompts, and the win-prob heuristic — see
+  // CapabilityProfile.ignoreLocation in ./types.ts for the full contract.
+  ignoreLocation: z.boolean().default(false),
 });
 
 export const GapSeveritySchema = z.enum(["blocker", "major", "minor"]);
@@ -103,14 +107,53 @@ export const MatchResultSchema = z.object({
   modelVersion: z.string(),
 });
 
-export const DigestScheduleInputSchema = z.object({
-  frequency: z.enum(["daily", "weekly"]),
-  hourLocal: z.number().int().min(0).max(23),
-  dayOfWeek: z.number().int().min(0).max(6).nullable(),
-  timezone: z.string().default("UTC"),
-  enabled: z.boolean().default(true),
-  minFitScore: z.number().int().min(0).max(100).default(60),
-});
+export const DigestScheduleInputSchema = z
+  .object({
+    /**
+     * Cadence:
+     *   - daily          → once per local day, in [hourLocal, hourLocalEnd]
+     *   - every_n_days   → once every `intervalDays` days, same window
+     *   - weekly         → once per week on dayOfWeek, same window
+     *   - monthly        → once per month on dayOfMonth, same window
+     */
+    frequency: z.enum(["daily", "every_n_days", "weekly", "monthly"]),
+    /** Used only when frequency = every_n_days. Range 1..60. */
+    intervalDays: z.number().int().min(1).max(60).default(2),
+    /** Start of the preferred delivery window, 0..23. */
+    hourLocal: z.number().int().min(0).max(23),
+    /** End of the preferred delivery window, 0..23. Must be >= hourLocal. */
+    hourLocalEnd: z.number().int().min(0).max(23),
+    /** Required for weekly cadence; ignored otherwise. 0=Sun..6=Sat. */
+    dayOfWeek: z.number().int().min(0).max(6).nullable(),
+    /** Required for monthly cadence; ignored otherwise. 1..31. */
+    dayOfMonth: z.number().int().min(1).max(31).nullable().default(null),
+    timezone: z.string().default("UTC"),
+    enabled: z.boolean().default(true),
+    minFitScore: z.number().int().min(0).max(100).default(60),
+  })
+  .superRefine((val, ctx) => {
+    if (val.hourLocalEnd < val.hourLocal) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["hourLocalEnd"],
+        message: "Window end must be at or after window start.",
+      });
+    }
+    if (val.frequency === "weekly" && val.dayOfWeek == null) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["dayOfWeek"],
+        message: "Pick a day of the week for weekly digests.",
+      });
+    }
+    if (val.frequency === "monthly" && val.dayOfMonth == null) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["dayOfMonth"],
+        message: "Pick a day of the month for monthly digests.",
+      });
+    }
+  });
 
 export const FeedbackInputSchema = z.object({
   interested: z.boolean(),

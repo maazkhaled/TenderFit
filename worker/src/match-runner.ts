@@ -125,6 +125,8 @@ function profileRowToCapability(row: any, companyName: string): CapabilityProfil
       max: row.budgetMaxUsd ?? 0,
     },
     languages: Array.isArray(row.languages) ? row.languages : ["en"],
+    // Defaults to false for older rows persisted before migration 006.
+    ignoreLocation: Boolean(row.ignoreLocation ?? false),
   };
 }
 
@@ -270,11 +272,14 @@ async function fetchHistoricalWins(
 }
 
 /** Compact representation of a tender for the cross-encoder reranker. */
-function tenderRerankDoc(row: any): string {
+function tenderRerankDoc(row: any, opts: { ignoreLocation?: boolean } = {}): string {
   const title = String(row.title ?? "");
   const buyer = String(row.buyer ?? "");
   const sector = row.sector ? `Sector: ${row.sector}` : "";
-  const country = row.country ? `Country: ${row.country}` : "";
+  // When the tenant has opted out of location, omit Country from the rerank
+  // document so the cross-encoder doesn't down-rank foreign tenders just on
+  // the country token mismatch with the query (which is the rendered profile).
+  const country = !opts.ignoreLocation && row.country ? `Country: ${row.country}` : "";
   const cpv = Array.isArray(row.cpvCodes) && row.cpvCodes.length
     ? `CPV: ${row.cpvCodes.join(", ")}`
     : "";
@@ -336,7 +341,9 @@ async function matchForTenant(tenant: {
   // ---- Stage 3: cross-encoder rerank ----
   const reranker = getRerankProvider();
   const rerankQuery = renderProfileForLLM(profile);
-  const rerankDocs = eligible.map((c) => tenderRerankDoc(tendersById.get(c.id)));
+  const rerankDocs = eligible.map((c) =>
+    tenderRerankDoc(tendersById.get(c.id), { ignoreLocation: profile.ignoreLocation }),
+  );
   let rerankedOrder: HybridCandidate[];
   try {
     const hits = await reranker.rerank(rerankQuery, rerankDocs, {

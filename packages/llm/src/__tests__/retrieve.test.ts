@@ -24,6 +24,7 @@ const baseProfile: CapabilityProfile = {
   teamSize: 10,
   budgetRangeUsd: { min: 0, max: 0 },
   languages: ["en"],
+  ignoreLocation: false,
 };
 
 test("reciprocalRankFusion: single list returns canonical order", () => {

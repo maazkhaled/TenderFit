@@ -30,10 +30,10 @@ export default function LandingPage() {
             Project Beta
           </div>
           <div className="flex items-center gap-2">
-            <Link href="/dashboard">
+            <Link href="/login">
               <Button variant="ghost" size="sm">Sign in</Button>
             </Link>
-            <Link href="/onboard">
+            <Link href="/login">
               <Button size="sm">Try the demo</Button>
             </Link>
           </div>
@@ -57,14 +57,9 @@ export default function LandingPage() {
             We ingest opportunities from official sources only — SAM.gov, TED, UNGM, World Bank, PPRA — and use Claude to score fit, expose your gaps, and draft the capability statement before you open a bid doc.
           </p>
           <div className="mt-10 flex items-center justify-center gap-3">
-            <Link href="/onboard">
+            <Link href="/login">
               <Button size="lg">
-                Try the demo <ArrowRight className="h-4 w-4" />
-              </Button>
-            </Link>
-            <Link href="/dashboard">
-              <Button size="lg" variant="secondary">
-                See a sample dashboard
+                Sign in <ArrowRight className="h-4 w-4" />
               </Button>
             </Link>
           </div>
@@ -96,8 +91,8 @@ export default function LandingPage() {
           <p className="max-w-md text-sm text-zinc-600">
             Describe your company once. Get tender matches with rationale, gaps, win-probability, and a draft capability statement.
           </p>
-          <Link href="/onboard">
-            <Button size="lg">Try the demo</Button>
+          <Link href="/login">
+            <Button size="lg">Sign in</Button>
           </Link>
         </div>
       </section>

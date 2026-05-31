@@ -56,5 +56,7 @@ export function profileRowToCapability(
       max: row.budgetMaxUsd ?? 0,
     },
     languages: Array.isArray(row.languages) ? row.languages : ["en"],
+    // Defaults to false for older profile rows persisted before migration 006.
+    ignoreLocation: Boolean(row.ignoreLocation ?? false),
   };
 }

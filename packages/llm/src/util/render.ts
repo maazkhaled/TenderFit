@@ -31,7 +31,7 @@ export function renderProfileForLLM(profile: CapabilityProfile): string {
       ? "  (global / unspecified)"
       : bullets(profile.geographies);
 
-  return [
+  const parts = [
     `# Company Profile`,
     `Company: ${profile.companyName}`,
     `One-liner: ${profile.oneLiner}`,
@@ -56,24 +56,52 @@ export function renderProfileForLLM(profile: CapabilityProfile): string {
     ``,
     `Past projects:`,
     projects,
-    ``,
-    `Geographies:`,
-    geo,
-  ].join("\n");
+  ];
+
+  // When ignoreLocation is on, omit the Geographies section *and* tell the
+  // model explicitly not to weigh location. Telling it is important: with
+  // the section silently missing, the LLM may still surface "no country
+  // information available" as a gap. An explicit instruction defuses that.
+  if (profile.ignoreLocation) {
+    parts.push(
+      ``,
+      `Geography policy:`,
+      `  This company has opted in to international collaboration / joint`,
+      `  ventures. IGNORE country / geography mismatch when scoring fit,`,
+      `  listing gaps, or assessing win probability. Do not flag "company`,
+      `  not located in tender country" as a gap.`,
+    );
+  } else {
+    parts.push(``, `Geographies:`, geo);
+  }
+
+  return parts.join("\n");
 }
 
-export function renderTenderForLLM(tender: NormalizedTender): string {
+export interface RenderTenderOptions {
+  /** When true, the tender's Country line is omitted to match an ignoreLocation profile. */
+  ignoreLocation?: boolean;
+}
+
+export function renderTenderForLLM(
+  tender: NormalizedTender,
+  options: RenderTenderOptions = {},
+): string {
   const budget =
     tender.budgetMinUsd == null && tender.budgetMaxUsd == null
       ? "(unspecified)"
       : `${tender.budgetMinUsd ?? "?"} - ${tender.budgetMaxUsd ?? "?"} USD`;
 
-  return [
+  const lines: string[] = [
     `# Tender`,
     `Title: ${tender.title}`,
     `Source: ${tender.source}`,
     `Buyer: ${tender.buyer}`,
-    `Country: ${tender.country ?? "(unspecified)"}`,
+  ];
+  if (!options.ignoreLocation) {
+    lines.push(`Country: ${tender.country ?? "(unspecified)"}`);
+  }
+  lines.push(
     `Sector: ${tender.sector ?? "(unspecified)"}`,
     `CPV codes: ${tender.cpvCodes.length ? tender.cpvCodes.join(", ") : "(none)"}`,
     `Budget: ${budget}`,
@@ -85,5 +113,6 @@ export function renderTenderForLLM(tender: NormalizedTender): string {
     ``,
     `Description:`,
     truncate(tender.description ?? "", TENDER_DESC_MAX),
-  ].join("\n");
+  );
+  return lines.join("\n");
 }

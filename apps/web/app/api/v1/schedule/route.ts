@@ -12,10 +12,16 @@ export const GET = apiHandler(async () => {
 export const PUT = apiHandler(async (req) => {
   const { tenantId } = await requireSession();
   const input = await parseJson(req, DigestScheduleInputSchema);
+  // Normalise: only persist fields meaningful for the chosen cadence so the
+  // DB doesn't carry stale per-mode state (e.g. a dayOfWeek left over from
+  // an earlier weekly setting that the user switched to daily).
   const data = {
     frequency: input.frequency,
+    intervalDays: input.frequency === "every_n_days" ? input.intervalDays : 2,
     hourLocal: input.hourLocal,
-    dayOfWeek: input.dayOfWeek,
+    hourLocalEnd: input.hourLocalEnd,
+    dayOfWeek: input.frequency === "weekly" ? input.dayOfWeek : null,
+    dayOfMonth: input.frequency === "monthly" ? input.dayOfMonth : null,
     timezone: input.timezone,
     enabled: input.enabled,
     minFitScore: input.minFitScore,

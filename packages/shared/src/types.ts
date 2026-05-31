@@ -58,6 +58,20 @@ export interface CapabilityProfile {
   teamSize: number;
   budgetRangeUsd: { min: number; max: number };
   languages: string[];
+  /**
+   * When true, scoring and retrieval ignore country/geography entirely.
+   *
+   * For companies (like r2v) that actively want international collaborations
+   * and JVs, the default geo-match boost works against them — local-country
+   * tenders are scored higher and international ones get downgraded. Flipping
+   * this on:
+   *   - strips Geographies from the profile embedding text (forces re-embed)
+   *   - strips the Geographies/Country fields from the LLM scoring prompt
+   *   - skips the geo-match boost/penalty in the win-probability heuristic
+   *   - leaves the underlying data (profile.geographies, tender.country)
+   *     untouched on disk so the flag is reversible without data loss
+   */
+  ignoreLocation: boolean;
 }
 
 export type GapSeverity = "blocker" | "major" | "minor";

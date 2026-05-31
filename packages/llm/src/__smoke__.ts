@@ -28,6 +28,7 @@ const profile: CapabilityProfile = {
   teamSize: 18,
   budgetRangeUsd: { min: 100_000, max: 1_500_000 },
   languages: ["en", "ur"],
+  ignoreLocation: false,
 };
 
 const tender: NormalizedTender = {

@@ -270,7 +270,7 @@ function buildUserContent(
   return [
     renderProfileForLLM(profile),
     "",
-    renderTenderForLLM(tender),
+    renderTenderForLLM(tender, { ignoreLocation: profile.ignoreLocation }),
     "",
     `# Cosine similarity hint`,
     `${similarity.toFixed(4)} (range 0..1). The cosine similarity is one input — feel free to override it if the rationale demands a different score.`,

@@ -51,8 +51,13 @@ function flattenProfile(profile: CapabilityProfile): string {
           })
           .join("\n");
 
-  const geo =
-    profile.geographies.length === 0
+  // When ignoreLocation is on, omit the Geographies line entirely. This both
+  // (a) changes the embedded text so the hash differs → triggers a re-embed
+  // on the next match-runner tick, and (b) removes the geography signal from
+  // the dense vector so retrieval no longer favours same-country tenders.
+  const geoLine = profile.ignoreLocation
+    ? null
+    : profile.geographies.length === 0
       ? "Geographies: global / unspecified"
       : `Geographies: ${profile.geographies.join(", ")}`;
 
@@ -65,11 +70,13 @@ function flattenProfile(profile: CapabilityProfile): string {
     joinList("Certifications", profile.certifications),
     joinList("Past clients", profile.pastClients),
     projects,
-    geo,
+    geoLine,
     `Team size: ${profile.teamSize}`,
     `Budget range USD: ${profile.budgetRangeUsd.min}-${profile.budgetRangeUsd.max}`,
     joinList("Languages", profile.languages),
-  ].join("\n");
+  ]
+    .filter((s): s is string => s != null)
+    .join("\n");
 }
 
 /**

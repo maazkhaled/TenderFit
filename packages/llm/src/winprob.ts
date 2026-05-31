@@ -30,7 +30,12 @@ export function estimateWinProbability(
   const isGlobal = profileGeos.size === 0;
   const tenderCountry = tender.country?.toUpperCase() ?? null;
 
-  if (isGlobal) {
+  // ignoreLocation tenants (international-collab-seeking) get a neutral
+  // geo signal — no boost for local, no penalty for foreign. We still
+  // mention the policy in factors so the LLM scorer sees why we abstained.
+  if (profile.ignoreLocation) {
+    factors.push("location disregarded per profile setting");
+  } else if (isGlobal) {
     score += 1;
     factors.push("company operates globally");
   } else if (tenderCountry && profileGeos.has(tenderCountry)) {
@@ -101,11 +106,13 @@ export function estimateWinProbability(
   }
 
   if (similarHistoricalWins.length > 0) {
-    const wonInCountry = tenderCountry
-      ? similarHistoricalWins.some(
-          (w) => (w.country ?? "").toUpperCase() === tenderCountry,
-        )
-      : false;
+    // wonInCountry contributes nothing when location is being ignored.
+    const wonInCountry =
+      !profile.ignoreLocation && tenderCountry
+        ? similarHistoricalWins.some(
+            (w) => (w.country ?? "").toUpperCase() === tenderCountry,
+          )
+        : false;
     const wonInSector = tenderSector
       ? similarHistoricalWins.some((w) =>
           (w.sector ?? "").toLowerCase().includes(tenderSector),

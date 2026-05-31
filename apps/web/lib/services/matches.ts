@@ -121,10 +121,33 @@ export async function countMatchesForTenant(
 }
 
 export async function getMatchForTenant(tenantId: string, matchId: string) {
+  // Explicit select on tender to avoid pulling Unsupported pgvector/tsvector
+  // columns (which would force Prisma to serialise types it can't handle).
+  // Keep this list in sync with the Tender fields the match-detail page uses.
   return prisma.matchResult.findFirst({
     where: { id: matchId, tenantId },
     include: {
-      tender: true,
+      tender: {
+        select: {
+          id: true,
+          source: true,
+          externalId: true,
+          title: true,
+          description: true,
+          url: true,
+          buyer: true,
+          country: true,
+          sector: true,
+          cpvCodes: true,
+          budgetMinUsd: true,
+          budgetMaxUsd: true,
+          currency: true,
+          language: true,
+          publishedAt: true,
+          deadlineAt: true,
+          ingestedAt: true,
+        },
+      },
       feedback: true,
     },
   });

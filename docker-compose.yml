@@ -1,19 +1,23 @@
-# Project Beta — Docker Compose stack
+# TenderFit — Docker Compose stack (production-shaped)
 #
 # Services:
 #   postgres : Postgres 16 with pgvector. Stores tenders, profiles, matches.
+#              Not exposed publicly — reachable only from web/worker on the
+#              compose network at `postgres:5432`.
 #   web      : Next.js 14 production server. Tenant dashboard + /api/v1/*.
+#              Not exposed publicly — Caddy reverse-proxies to web:3000.
 #   worker   : Long-running cron (ingest every 6h, match hourly, digest 15m).
-#   caddy    : Reverse proxy + automatic HTTPS (commented out by default;
-#              enable on the production VM once a domain points at it).
+#              Also exposes an internal HTTP API on :8080 for the dashboard's
+#              "Run now" buttons (Fetch tenders / Find matches / Send digest).
+#              Auth-gated via WORKER_AUTH_TOKEN. Not exposed publicly.
+#   caddy    : Reverse proxy + automatic HTTPS via Let's Encrypt. The only
+#              service with public ports (80, 443). Reads DOMAIN + EMAIL from
+#              env vars and matches them against the Caddyfile at the repo
+#              root.
 #
-# Local usage:
-#   1. Fill GEMINI_API_KEY in .env (the only required key — Voyage already set).
-#   2. docker compose up -d
-#   3. First-run only: `docker compose exec web pnpm db:push` then
-#                     `docker compose exec web pnpm db:sql packages/db/src/migrations/001_pgvector.sql`
-#                     (and the other migrations as needed).
-#   4. Browse http://localhost:3000
+# Local dev (no public domain): comment out the caddy service block and
+# uncomment `ports: - "3000:3000"` on web so localhost:3000 works directly.
+# For production deployments behind a domain, leave this file as-is.
 
 services:
   postgres:
@@ -26,10 +30,6 @@ services:
       POSTGRES_DB: project_beta
     volumes:
       - pgdata:/var/lib/postgresql/data
-    # Exposed on the host so you can `psql -h localhost` for debugging.
-    # Remove this `ports` block on the production VM.
-    ports:
-      - "5432:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d project_beta"]
       interval: 5s
@@ -49,13 +49,19 @@ services:
         condition: service_healthy
     env_file: .env
     environment:
-      # Override .env so the app talks to postgres over the compose network
-      # instead of localhost. The Prisma URL points at the service hostname.
+      # Postgres is reached over the compose network — Prisma URL points at
+      # the service hostname, NOT localhost.
       DATABASE_URL: "postgresql://postgres:postgres@postgres:5432/project_beta?schema=public"
       NODE_ENV: production
-      APP_URL: "http://localhost:3000"
-    ports:
-      - "3000:3000"
+      # Production URL; used by digest links and login redirects. Override at
+      # docker-compose level so it takes effect regardless of what .env says.
+      APP_URL: "https://tenderfit.detex.site"
+      # Bearer token the web container sends to the worker's internal API.
+      # Read from .env so it's not committed to git.
+      WORKER_AUTH_TOKEN: ${WORKER_AUTH_TOKEN}
+    # No `ports:` — Caddy proxies to web:3000 over the compose network.
+    expose:
+      - "3000"
 
   worker:
     build:
@@ -70,36 +76,34 @@ services:
     environment:
       DATABASE_URL: "postgresql://postgres:postgres@postgres:5432/project_beta?schema=public"
       NODE_ENV: production
+      # Same secret the web container uses; the HTTP server in worker/src/server.ts
+      # refuses any request without a matching Authorization: Bearer header.
+      WORKER_AUTH_TOKEN: ${WORKER_AUTH_TOKEN}
     # Internal-only HTTP trigger API for the web UI's action buttons.
     # `expose:` makes 8080 reachable from `web` (and other compose services)
     # via http://worker:8080, but NEVER exposes it on the host or public
-    # internet. Auth still required via WORKER_AUTH_TOKEN.
+    # internet.
     expose:
       - "8080"
 
-  # --- Caddy reverse proxy + auto-TLS (production only) -------------------
-  # Uncomment when deploying to a VM with a real domain pointing at it.
-  # Set DOMAIN and EMAIL in the environment, then `docker compose up -d`.
-  # Caddy will fetch a Let's Encrypt cert automatically and proxy to web.
-  #
-  # caddy:
-  #   image: caddy:2-alpine
-  #   container_name: pb_caddy
-  #   restart: unless-stopped
-  #   depends_on:
-  #     - web
-  #   ports:
-  #     - "80:80"
-  #     - "443:443"
-  #   environment:
-  #     DOMAIN: "tenders.yourcompany.com"
-  #     EMAIL: "you@yourcompany.com"
-  #   volumes:
-  #     - ./Caddyfile:/etc/caddy/Caddyfile:ro
-  #     - caddy_data:/data
-  #     - caddy_config:/config
+  caddy:
+    image: caddy:2-alpine
+    container_name: pb_caddy
+    restart: unless-stopped
+    depends_on:
+      - web
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: "tenderfit.detex.site"
+      EMAIL: "maazkhaled@gmail.com"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
 
 volumes:
   pgdata:
-  # caddy_data:
-  # caddy_config:
+  caddy_data:
+  caddy_config:

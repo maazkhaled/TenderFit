@@ -37,13 +37,15 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
   }
 
   // Brand-new user: email cookie is set but no tenant exists yet. Push them
-  // to /onboard unless they're already there (Next gives us the pathname via
-  // the x-invoke-path / next-url header, depending on rendering mode).
+  // to /onboard unless they're already there.
+  //
+  // We read the pathname from `x-pathname`, which middleware.ts sets on every
+  // request. The previous attempt used `x-invoke-path` / `next-url` directly
+  // from headers(), but those aren't set consistently in production builds —
+  // result: when a no-tenant user landed on /onboard, the layout couldn't
+  // tell it was already there and redirected to /onboard again, looping.
   if (!session.activeTenantId) {
-    const path =
-      headers().get("x-invoke-path") ??
-      headers().get("next-url") ??
-      "";
+    const path = headers().get("x-pathname") ?? "";
     if (!path.startsWith("/onboard")) {
       redirect("/onboard");
     }

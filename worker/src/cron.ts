@@ -8,6 +8,10 @@ import { prisma } from "@beta/db";
 import { runIngest } from "./ingest-runner.js";
 import { runMatch } from "./match-runner.js";
 import { runDigest } from "./digest-runner.js";
+// Side-effect import: starts the internal HTTP server that lets the web
+// container trigger ingest/match/digest from UI buttons. See server.ts for
+// the API surface and auth model.
+import "./server.js";
 
 let running = {
   ingest: false,

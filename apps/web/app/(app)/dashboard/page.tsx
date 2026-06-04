@@ -5,6 +5,7 @@ import { apiGetSafe } from "@/lib/ui/fetch-server";
 import { Card, CardBody } from "@/components/ui/Card";
 import { MatchCard, type MatchCardData } from "@/components/domain/MatchCard";
 import { SourceFilter } from "@/components/domain/SourceFilter";
+import { ActionsPanel } from "@/components/dashboard/ActionsPanel";
 
 export const dynamic = "force-dynamic";
 
@@ -97,6 +98,8 @@ export default async function DashboardPage({
           Tenders matched against your capability profile, fit-score {minScore}+.
         </p>
       </header>
+
+      <ActionsPanel />
 
       <SourceFilter
         filterApplied={sourceFilterApplied}

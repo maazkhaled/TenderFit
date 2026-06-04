@@ -70,6 +70,12 @@ services:
     environment:
       DATABASE_URL: "postgresql://postgres:postgres@postgres:5432/project_beta?schema=public"
       NODE_ENV: production
+    # Internal-only HTTP trigger API for the web UI's action buttons.
+    # `expose:` makes 8080 reachable from `web` (and other compose services)
+    # via http://worker:8080, but NEVER exposes it on the host or public
+    # internet. Auth still required via WORKER_AUTH_TOKEN.
+    expose:
+      - "8080"
 
   # --- Caddy reverse proxy + auto-TLS (production only) -------------------
   # Uncomment when deploying to a VM with a real domain pointing at it.

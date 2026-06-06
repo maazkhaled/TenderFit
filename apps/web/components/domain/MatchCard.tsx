@@ -15,6 +15,8 @@ export interface MatchCardData {
     buyer: string;
     country: string | null;
     deadlineAt: string | Date | null;
+    /** When TenderFit fetched this row from the upstream source. */
+    ingestedAt?: string | Date | null;
   };
 }
 
@@ -34,8 +36,35 @@ function formatDeadline(deadline: string | Date | null) {
   });
 }
 
+/**
+ * "Fetched 3 hours ago" copy for the ingestedAt timestamp on each card.
+ * Falls back to a literal date once the gap is older than a week so users
+ * aren't squinting at "67 hours ago".
+ */
+function formatIngestedAt(ingestedAt: string | Date | null | undefined) {
+  if (!ingestedAt) return null;
+  const date =
+    typeof ingestedAt === "string" ? new Date(ingestedAt) : ingestedAt;
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) return null;
+  const diffMs = Date.now() - date.getTime();
+  if (diffMs < 0) return "Fetched just now";
+  const minutes = Math.round(diffMs / 60_000);
+  if (minutes < 1) return "Fetched just now";
+  if (minutes < 60) return `Fetched ${minutes} min ago`;
+  const hours = Math.round(diffMs / 3_600_000);
+  if (hours < 24) return `Fetched ${hours} hr ago`;
+  const days = Math.round(diffMs / 86_400_000);
+  if (days <= 7) return `Fetched ${days} d ago`;
+  return `Fetched ${date.toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  })}`;
+}
+
 export function MatchCard({ match }: { match: MatchCardData }) {
   const minimumPeople = match.humanResourcesEstimate?.minimumPeople;
+  const ingestedLabel = formatIngestedAt(match.tender.ingestedAt ?? null);
   return (
     <Link
       href={`/matches/${match.id}`}
@@ -63,6 +92,9 @@ export function MatchCard({ match }: { match: MatchCardData }) {
               <span className="text-xs text-zinc-500">
                 {formatDeadline(match.tender.deadlineAt)}
               </span>
+              {ingestedLabel ? (
+                <span className="text-xs text-zinc-400">{ingestedLabel}</span>
+              ) : null}
             </div>
           </div>
         </CardBody>

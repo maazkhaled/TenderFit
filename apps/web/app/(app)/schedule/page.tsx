@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/Button";
 import { Select } from "@/components/ui/Select";
 import { Slider } from "@/components/ui/Slider";
 import { Field } from "@/components/ui/Input";
+import { TagInput } from "@/components/forms/TagInput";
 import { commonTimezones } from "@/lib/ui/countries";
 import { cn } from "@/lib/ui/cn";
 
@@ -32,6 +33,7 @@ const DEFAULT: DigestScheduleInput = {
   timezone: "UTC",
   enabled: true,
   minFitScore: 60,
+  recipients: [],
 };
 
 function hourLabel(h: number): string {
@@ -65,6 +67,9 @@ export default function SchedulePage() {
                 schedule.hourLocalEnd ?? Math.min(23, (schedule.hourLocal ?? 8) + 2),
               intervalDays: schedule.intervalDays ?? 2,
               dayOfMonth: schedule.dayOfMonth ?? null,
+              recipients: Array.isArray(schedule.recipients)
+                ? schedule.recipients
+                : [],
             };
             const parsed = DigestScheduleInputSchema.safeParse(filled);
             if (!cancelled && parsed.success) setState(parsed.data);
@@ -329,6 +334,29 @@ export default function SchedulePage() {
               className="h-4 w-4 cursor-pointer accent-indigo-600"
             />
           </label>
+        </CardBody>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Recipients</CardTitle>
+          <CardDescription>
+            Email addresses the digest is delivered to. Press Enter or comma
+            after each address. Leave empty to use the legacy single-recipient
+            fallback (DIGEST_TEST_RECIPIENT env).
+          </CardDescription>
+        </CardHeader>
+        <CardBody className="space-y-3">
+          <TagInput
+            value={state.recipients}
+            onChange={(next) => patch("recipients", next)}
+            placeholder="bidteam@yourcompany.com, ceo@yourcompany.com…"
+          />
+          <p className="text-xs text-zinc-500">
+            {state.recipients.length === 0
+              ? "No recipients configured — using fallback."
+              : `${state.recipients.length} recipient${state.recipients.length === 1 ? "" : "s"} will receive each digest.`}
+          </p>
         </CardBody>
       </Card>
 

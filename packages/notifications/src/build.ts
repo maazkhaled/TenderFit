@@ -44,6 +44,9 @@ export async function buildDigestForTenant(
     // Surface the effective threshold so the email renderer can show it
     // verbatim instead of falling back to the build-time DEFAULT constant.
     minFitScore,
+    recipients: Array.isArray(tenant.schedule?.recipients)
+      ? tenant.schedule!.recipients
+      : [],
     matches: matches.map((m: any) => ({
       matchId: m.id,
       tenderTitle: m.tender.title,

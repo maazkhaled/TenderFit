@@ -6,6 +6,9 @@ import { Card, CardBody } from "@/components/ui/Card";
 import { MatchCard, type MatchCardData } from "@/components/domain/MatchCard";
 import { SourceFilter } from "@/components/domain/SourceFilter";
 import { ActionsPanel } from "@/components/dashboard/ActionsPanel";
+import { MinFitScoreControl } from "@/components/dashboard/MinFitScoreControl";
+import { prisma } from "@/lib/db";
+import { requireSession } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
@@ -59,7 +62,16 @@ export default async function DashboardPage({
 }: {
   searchParams?: { sources?: string | string[]; sourceFilter?: string };
 }) {
-  const minScore = Number.isFinite(DEFAULT_MIN) ? DEFAULT_MIN : 30;
+  // Prefer the tenant's saved schedule threshold (live, user-controlled) over
+  // the static DASHBOARD_MIN_FIT_SCORE env. Falls back to the env / 30 only
+  // when no schedule row exists yet.
+  const { tenantId } = await requireSession();
+  const schedule = await prisma.digestSchedule.findUnique({
+    where: { tenantId },
+    select: { minFitScore: true },
+  });
+  const fallback = Number.isFinite(DEFAULT_MIN) ? DEFAULT_MIN : 30;
+  const minScore = schedule?.minFitScore ?? fallback;
   const sourceFilterApplied = searchParams?.sourceFilter === "1" || searchParams?.sources !== undefined;
   const selectedSources = sourceFilterApplied
     ? parseSourceSelection(searchParams?.sources)
@@ -100,6 +112,8 @@ export default async function DashboardPage({
       </header>
 
       <ActionsPanel />
+
+      <MinFitScoreControl initialValue={minScore} />
 
       <SourceFilter
         filterApplied={sourceFilterApplied}

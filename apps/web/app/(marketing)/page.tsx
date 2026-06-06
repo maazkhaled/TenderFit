@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ArrowRight, Brain, GitCompareArrows, MailCheck, Sparkles } from "lucide-react";
+import { ArrowRight, Brain, GitCompareArrows, Globe, MailCheck, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 
 const FEATURES = [
@@ -14,9 +14,14 @@ const FEATURES = [
     body: "We surface the certifications, tech, and scale you don't yet have — colour-coded by severity, before you waste a bid cycle.",
   },
   {
+    icon: Globe,
+    title: "International Collaboration Mode",
+    body: "Opt in to ignore geography entirely. Surface tenders worldwide as candidates for JVs, partnerships, and cross-border bids — no local-market bias.",
+  },
+  {
     icon: MailCheck,
     title: "Scheduled Smart Digests",
-    body: "Never always-on. You pick the cadence, the cut-off score, and the timezone. Inbox respect, not interruption.",
+    body: "Never always-on. You pick the cadence, the cut-off score, the timezone, and the recipient list. Inbox respect, not interruption.",
   },
 ];
 
@@ -67,7 +72,7 @@ export default function LandingPage() {
       </section>
 
       <section className="mx-auto max-w-6xl px-6 pb-32">
-        <div className="grid gap-6 md:grid-cols-3">
+        <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
           {FEATURES.map(({ icon: Icon, title, body }) => (
             <div
               key={title}

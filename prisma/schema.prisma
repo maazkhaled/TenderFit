@@ -235,6 +235,9 @@ model DigestSchedule {
   enabled       Boolean         @default(true)
   lastSentAt    DateTime?
   minFitScore   Int             @default(60)
+  /// Email addresses the digest is delivered to. When empty, falls back to
+  /// the env var DIGEST_TEST_RECIPIENT (legacy single-recipient behaviour).
+  recipients    String[]        @default([])
   updatedAt     DateTime        @updatedAt
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)

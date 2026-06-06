@@ -130,6 +130,14 @@ export const DigestScheduleInputSchema = z
     timezone: z.string().default("UTC"),
     enabled: z.boolean().default(true),
     minFitScore: z.number().int().min(0).max(100).default(60),
+    /**
+     * Email addresses the digest is sent to. Each entry is a valid email.
+     * When empty, the worker falls back to DIGEST_TEST_RECIPIENT env.
+     */
+    recipients: z
+      .array(z.string().email("Each recipient must be a valid email."))
+      .max(20, "Max 20 recipients per tenant.")
+      .default([]),
   })
   .superRefine((val, ctx) => {
     if (val.hourLocalEnd < val.hourLocal) {

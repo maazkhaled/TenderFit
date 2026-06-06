@@ -42,8 +42,12 @@ async function processTenant(tenantId: string): Promise<void> {
 
   const html = renderDigestHtml(payload);
   const result = await sendDigest(payload, html);
+  const idSummary =
+    result.messageIds.length > 0 ? ` ids=${result.messageIds.length}` : "";
+  const errSummary =
+    result.errors.length > 0 ? ` errors=${result.errors.length}` : "";
   console.log(
-    `[digest] tenant=${tenantId} matches=${payload.matches.length} delivered=${result.delivered} mode=${result.mode}${result.messageId ? ` id=${result.messageId}` : ""}`,
+    `[digest] tenant=${tenantId} matches=${payload.matches.length} recipients=${result.recipients} delivered=${result.delivered} mode=${result.mode}${idSummary}${errSummary}`,
   );
 
   await prisma.digestSchedule.updateMany({

@@ -25,6 +25,11 @@ export const PUT = apiHandler(async (req) => {
     timezone: input.timezone,
     enabled: input.enabled,
     minFitScore: input.minFitScore,
+    // Deduplicate + lowercase emails before persist so "Foo@bar.com" and
+    // "foo@bar.com" don't both end up in the array.
+    recipients: Array.from(
+      new Set(input.recipients.map((r) => r.trim().toLowerCase())),
+    ).filter((r) => r.length > 0),
   };
   const schedule = await prisma.digestSchedule.upsert({
     where: { tenantId },

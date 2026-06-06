@@ -95,6 +95,9 @@ export async function listMatchesForTenant(params: MatchListParams) {
           budgetMinUsd: true,
           budgetMaxUsd: true,
           currency: true,
+          // When TenderFit fetched this tender from the source — shown on
+          // the dashboard cards so the user can see freshness at a glance.
+          ingestedAt: true,
         },
       },
     },

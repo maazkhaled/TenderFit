@@ -136,6 +136,12 @@ export interface DigestPayload {
    * can show the real number rather than a build-time constant.
    */
   minFitScore: number;
+  /**
+   * Recipients the digest should be delivered to. Comes from
+   * DigestSchedule.recipients. When empty, the sender falls back to the
+   * DIGEST_TEST_RECIPIENT env var for back-compat with single-tenant pilots.
+   */
+  recipients: string[];
   matches: Array<{
     matchId: string;
     tenderTitle: string;

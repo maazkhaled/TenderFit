@@ -1,8 +1,8 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import { Sparkles } from "lucide-react";
 import { getSession } from "@/lib/auth";
 import { Card, CardBody, CardDescription, CardHeader, CardTitle } from "@/components/ui/Card";
+import { BrandMark } from "@/components/ui/BrandMark";
 import { LoginForm } from "./LoginForm";
 
 export const dynamic = "force-dynamic";
@@ -34,7 +34,7 @@ export default async function LoginPage({
             href="/"
             className="flex items-center gap-2 text-sm font-semibold tracking-tight"
           >
-            <Sparkles className="h-4 w-4 text-indigo-600" />
+            <BrandMark />
             TenderFit
           </Link>
         </div>

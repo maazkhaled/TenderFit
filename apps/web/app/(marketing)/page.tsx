@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { ArrowRight, Brain, GitCompareArrows, Globe, MailCheck, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/Button";
+import { BrandMark } from "@/components/ui/BrandMark";
 
 const FEATURES = [
   {
@@ -31,7 +32,7 @@ export default function LandingPage() {
       <header className="absolute inset-x-0 top-0 z-10">
         <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-6">
           <div className="flex items-center gap-2 text-sm font-semibold">
-            <Sparkles className="h-4 w-4 text-indigo-600" />
+            <BrandMark />
             TenderFit
           </div>
           <div className="flex items-center gap-2">

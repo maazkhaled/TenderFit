@@ -6,11 +6,11 @@ import {
   Archive,
   CalendarClock,
   LayoutDashboard,
-  Sparkles,
   UserCog,
 } from "lucide-react";
 import { getEmailOnlySession } from "@/lib/auth";
 import { LogoutButton } from "@/components/auth/LogoutButton";
+import { BrandMark } from "@/components/ui/BrandMark";
 
 const NAV = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -56,7 +56,7 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
       <header className="border-b border-zinc-200 bg-white">
         <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-6">
           <Link href="/" className="flex items-center gap-2 text-sm font-semibold tracking-tight">
-            <Sparkles className="h-4 w-4 text-indigo-600" />
+            <BrandMark />
             TenderFit
           </Link>
           <nav className="flex items-center gap-1">

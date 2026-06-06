@@ -30,7 +30,7 @@ export const adapters: Record<TenderSourceId, IngestAdapter> = {
   ppra_punjab: disabledAdapter(
     "ppra_punjab",
     "Punjab PPRA",
-    "Current public procurement page lists categories and EPADS guidance, but no stable active-tender feed/API was verified.",
+    "Public active-tender listing at eproc.punjab.gov.pk/ActiveTenders.aspx exists but is an ASP.NET WebForms SPA — initial HTML is empty, rows are populated via ViewState POSTs. A dedicated adapter that mimics the form post (reading __VIEWSTATE / __EVENTVALIDATION and paging via __doPostBack) would enable ingest. Next-up adapter — high value, ~half a day of work.",
   ),
   kppra: disabledAdapter(
     "kppra",

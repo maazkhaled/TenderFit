@@ -19,7 +19,7 @@ export function BrandMark({
 }) {
   return (
     <img
-      src="/detex-logo.svg"
+      src="/detex-logo.png"
       alt={alt}
       className={cn("h-4 w-4 shrink-0", className)}
       width={16}

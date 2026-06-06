@@ -1,12 +1,15 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
-  Browser-tab favicon. Next.js App Router picks this up automatically when
-  named `icon.svg` (or icon.png, icon.ico) at the app/ root. Replace with
-  your real Detex mark; keep the file at this path.
+  Browser-tab favicon. Same DT monogram as /detex-logo.svg, but with a
+  subtle background tile so the mark stays legible in dark / light
+  browser chrome.
 -->
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
-  <rect width="64" height="64" rx="14" fill="#4f46e5"/>
-  <text x="32" y="44" text-anchor="middle"
-        font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif"
-        font-size="32" font-weight="700" fill="white">D</text>
+  <rect width="64" height="64" rx="12" fill="#ffffff" />
+  <path
+    d="M 32 8 L 18 8 A 24 24 0 0 1 18 56 L 32 56 Z"
+    fill="#5a5a5a"
+  />
+  <rect x="34" y="8" width="6"  height="48" fill="#5a5a5a" />
+  <rect x="30" y="8" width="20" height="6"  fill="#5a5a5a" />
 </svg>

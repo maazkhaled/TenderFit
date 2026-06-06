@@ -1,13 +1,19 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
-  Placeholder Detex logo. Replace this file with your real logo SVG (or PNG
-  if you prefer raster — just update the BrandMark component's src below).
-  Aspect ratio used by BrandMark is roughly square; if your real logo is
-  wide, change the BrandMark component's className from "h-4 w-4" to fit.
+  Detex Technologies — DT monogram (approximation of the supplied logo).
+  Drawn at 64x64 to render crisply at any size from favicon (16px) to header.
+  Color: the same medium-grey from the source PNG (#5a5a5a).
+
+  To replace with the real PNG/SVG from your brand kit, drop the file at
+  this same path and BrandMark.tsx will pick it up automatically.
 -->
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
-  <rect width="64" height="64" rx="14" fill="#4f46e5"/>
-  <text x="32" y="42" text-anchor="middle"
-        font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif"
-        font-size="28" font-weight="700" fill="white">D</text>
+  <!-- D — left half: filled semicircle anchored on its right edge -->
+  <path
+    d="M 32 8 L 18 8 A 24 24 0 0 1 18 56 L 32 56 Z"
+    fill="#5a5a5a"
+  />
+  <!-- T — right half: vertical stem with a top cap -->
+  <rect x="34" y="8" width="6"  height="48" fill="#5a5a5a" />
+  <rect x="30" y="8" width="20" height="6"  fill="#5a5a5a" />
 </svg>

@@ -16,6 +16,7 @@ import { ignitePkAdapter } from "./adapters/ignite_pk.ts";
 import { undpAdapter } from "./adapters/undp.ts";
 import { pdaPkAdapter } from "./adapters/pda_pk.ts";
 import { sopPkAdapter } from "./adapters/sop_pk.ts";
+import { ppraPunjabAdapter } from "./adapters/ppra_punjab.ts";
 
 export const adapters: Record<TenderSourceId, IngestAdapter> = {
   world_bank: worldBankAdapter,
@@ -27,11 +28,12 @@ export const adapters: Record<TenderSourceId, IngestAdapter> = {
     "Pakistan e-Procurement",
     "Public tender listings are handled by EPMS/PPRA; no separate stable public API/RSS found.",
   ),
-  ppra_punjab: disabledAdapter(
-    "ppra_punjab",
-    "Punjab PPRA",
-    "Public active-tender listing at eproc.punjab.gov.pk/ActiveTenders.aspx exists but is an ASP.NET WebForms SPA — initial HTML is empty, rows are populated via ViewState POSTs. A dedicated adapter that mimics the form post (reading __VIEWSTATE / __EVENTVALIDATION and paging via __doPostBack) would enable ingest. Next-up adapter — high value, ~half a day of work.",
-  ),
+  // Re-enabled 2026-06. ASP.NET WebForms adapter scrapes
+  // eproc.punjab.gov.pk/ActiveTenders.aspx — see adapters/ppra_punjab.ts
+  // for the structural heuristics. First production run will likely need
+  // a small refinement of rowsFromHtml/extractTender once we see the
+  // real-world HTML — watch the worker logs after the first ingest pass.
+  ppra_punjab: ppraPunjabAdapter,
   kppra: disabledAdapter(
     "kppra",
     "Khyber Pakhtunkhwa PPRA",

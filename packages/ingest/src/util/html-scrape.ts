@@ -159,3 +159,92 @@ export function stripTags(s: string): string {
 function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
+
+/**
+ * POST helper for ASP.NET WebForms pages that require ViewState round-trips.
+ *
+ * Honours the same per-host rate limit + retry policy as fetchHtml. Body is
+ * form-urlencoded (application/x-www-form-urlencoded) — that's what WebForms
+ * expects for __VIEWSTATE / __EVENTTARGET callbacks.
+ *
+ * Returns the raw HTML response body. Cookies sent on a previous GET to the
+ * same host are NOT automatically replayed — pass them explicitly via
+ * `opts.headers.Cookie` if the server requires session continuity.
+ */
+export async function postForm(
+  url: string,
+  formData: Record<string, string>,
+  opts: FetchHtmlOpts = {},
+): Promise<string> {
+  const host = new URL(url).host;
+  const interval = Math.max(1_000, opts.minIntervalMs ?? MIN_INTERVAL_MS);
+
+  const last = lastRequestAtPerHost.get(host) ?? 0;
+  const wait = last + interval - Date.now();
+  if (wait > 0) await sleep(wait);
+  lastRequestAtPerHost.set(host, Date.now());
+
+  const body = new URLSearchParams(formData).toString();
+  const headers: Record<string, string> = {
+    "User-Agent": BROWSER_UA,
+    Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Content-Type": "application/x-www-form-urlencoded",
+    "Content-Length": String(Buffer.byteLength(body)),
+    Origin: new URL(url).origin,
+    Referer: url,
+    ...opts.headers,
+  };
+
+  const timeoutMs = opts.timeoutMs ?? 30_000;
+
+  let lastErr: unknown = null;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const res = await fetch(url, {
+        method: "POST",
+        headers,
+        body,
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+      if (res.status === 429 || res.status >= 500) {
+        await sleep(2_000 * (attempt + 1));
+        continue;
+      }
+      if (!res.ok) {
+        throw new Error(`postForm ${url} -> ${res.status} ${res.statusText}`);
+      }
+      return await res.text();
+    } catch (err) {
+      lastErr = err;
+      await sleep(1_000 * (attempt + 1));
+    }
+  }
+  throw lastErr ?? new Error(`postForm ${url} failed after retries`);
+}
+
+/**
+ * Extract the three hidden inputs every ASP.NET WebForms page emits.
+ * Returns the empty string for any field that's missing so callers can
+ * still construct a valid POST body — the server will reject it but
+ * we'll get a clean error rather than a JS exception.
+ */
+export function extractAspNetViewState(html: string): {
+  viewState: string;
+  viewStateGenerator: string;
+  eventValidation: string;
+} {
+  const grab = (name: string): string => {
+    const re = new RegExp(
+      `<input[^>]+name="${name}"[^>]+value="([^"]*)"`,
+      "i",
+    );
+    const m = re.exec(html);
+    return m && m[1] ? decodeEntities(m[1]) : "";
+  };
+  return {
+    viewState: grab("__VIEWSTATE"),
+    viewStateGenerator: grab("__VIEWSTATEGENERATOR"),
+    eventValidation: grab("__EVENTVALIDATION"),
+  };
+}

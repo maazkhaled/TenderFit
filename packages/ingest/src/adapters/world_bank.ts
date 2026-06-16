@@ -58,6 +58,37 @@ function isOpenOpportunity(noticeType: string | undefined): boolean {
   return false;
 }
 
+/**
+ * Phrases that appear in the description / notice text ONLY after a
+ * contract has been awarded. The notice_type field alone isn't reliable —
+ * the World Bank often keeps the original "Specific Procurement Notice"
+ * label on a record but updates the body with award details. Scanning
+ * the description catches those late-mutated records.
+ *
+ * All matches are lowercase substring tests on the concatenated
+ * description + bid_description fields.
+ */
+const AWARDED_DESCRIPTION_PHRASES = [
+  "date notification of award",
+  "notification of award issued",
+  "awarded bidder",
+  "awarded bidder(s)",
+  "letter of acceptance",
+  "contract award notice",
+  "notice of contract award",
+  "winning bidder",
+];
+
+function descriptionLooksAwarded(d: WorldBankDoc): boolean {
+  const text =
+    ((d.notice_text ?? "") + " " + (d.bid_description ?? "")).toLowerCase();
+  if (!text.trim()) return false;
+  for (const phrase of AWARDED_DESCRIPTION_PHRASES) {
+    if (text.includes(phrase)) return true;
+  }
+  return false;
+}
+
 export const worldBankAdapter: IngestAdapter = {
   source: "world_bank",
   label: "World Bank Procurement Notices",
@@ -89,8 +120,11 @@ export const worldBankAdapter: IngestAdapter = {
 
         // Filter awarded / cancelled / completed notices — they're not
         // biddable opportunities, just artefacts of the WB feed mixing
-        // outcome notices with open tenders.
-        if (!isOpenOpportunity(d.notice_type)) {
+        // outcome notices with open tenders. We check BOTH the notice_type
+        // field AND the description text, because WB sometimes keeps the
+        // original notice label and only updates the body when a contract
+        // gets awarded.
+        if (!isOpenOpportunity(d.notice_type) || descriptionLooksAwarded(d)) {
           skippedClosed += 1;
           continue;
         }

@@ -14,14 +14,27 @@ export async function buildDigestForTenant(
   const minFitScore =
     tenant.schedule?.minFitScore ?? DEFAULT_MIN_FIT_SCORE;
 
+  // Digest includes:
+  //   - Every match created since the last digest send (createdAt >= since).
+  //     This naturally spans multiple ingest runs — e.g. a Monday 9am digest
+  //     after a Friday 9am one will pull everything scored Fri→Mon.
+  //   - Only matches whose tender is still active (deadline in the future
+  //     OR no deadline at all). Past-deadline tenders are skipped.
+  //   - The top 50 by fit-score — enough headroom for a busy weekend gap
+  //     but still readable. Anything below makes it to the dashboard but
+  //     gets cut from the email.
+  const now = new Date();
   const matches = await prisma.matchResult.findMany({
     where: {
       tenantId,
       fitScore: { gte: minFitScore },
       createdAt: { gte: since },
+      tender: {
+        OR: [{ deadlineAt: null }, { deadlineAt: { gt: now } }],
+      },
     },
     orderBy: [{ fitScore: "desc" }, { createdAt: "desc" }],
-    take: 25,
+    take: 50,
     include: {
       tender: {
         select: {

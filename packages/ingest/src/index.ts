@@ -28,12 +28,17 @@ export const adapters: Record<TenderSourceId, IngestAdapter> = {
     "Pakistan e-Procurement",
     "Public tender listings are handled by EPMS/PPRA; no separate stable public API/RSS found.",
   ),
-  // Re-enabled 2026-06. ASP.NET WebForms adapter scrapes
-  // eproc.punjab.gov.pk/ActiveTenders.aspx — see adapters/ppra_punjab.ts
-  // for the structural heuristics. First production run will likely need
-  // a small refinement of rowsFromHtml/extractTender once we see the
-  // real-world HTML — watch the worker logs after the first ingest pass.
-  ppra_punjab: ppraPunjabAdapter,
+  // Disabled 2026-06: eproc.punjab.gov.pk geo-blocks non-PK IPs at the
+  // firewall, so the Malaysian production VPS can't reach it. The adapter
+  // code at adapters/ppra_punjab.ts is complete — to re-enable, configure
+  // PK_PROXY_URL in .env and swap the line below back to:
+  //   ppra_punjab: ppraPunjabAdapter,
+  // (Import retained above so the swap is one line.)
+  ppra_punjab: disabledAdapter(
+    "ppra_punjab",
+    "Punjab PPRA",
+    "Geo-blocked from non-PK IPs (Hostinger Malaysia cannot reach eproc.punjab.gov.pk). Configure PK_PROXY_URL in .env and re-enable in index.ts.",
+  ),
   kppra: disabledAdapter(
     "kppra",
     "Khyber Pakhtunkhwa PPRA",
@@ -50,7 +55,14 @@ export const adapters: Record<TenderSourceId, IngestAdapter> = {
     "Current BPPRA public site does not expose a stable active-tender feed/API; revisit if its portal publishes structured listings.",
   ),
   pda_pk: pdaPkAdapter, // enabled via per-host insecureTls (server omits intermediate cert)
-  nitb_pk: nitbPkAdapter,
+  // Disabled 2026-06: nitb.gov.pk geo-blocks non-PK IPs at the firewall.
+  // Adapter code complete — to re-enable, configure PK_PROXY_URL and swap
+  // this line back to: nitb_pk: nitbPkAdapter,
+  nitb_pk: disabledAdapter(
+    "nitb_pk",
+    "National IT Board (PK)",
+    "Geo-blocked from non-PK IPs. Configure PK_PROXY_URL in .env and re-enable in index.ts.",
+  ),
   pseb_pk: disabledAdapter(
     "pseb_pk",
     "Pakistan Software Export Board",
@@ -61,13 +73,23 @@ export const adapters: Record<TenderSourceId, IngestAdapter> = {
     "NADRA",
     "NADRA links to tenders on the rebuilt site, but no stable public listing/feed shape was verified.",
   ),
-  planning_commission_pk: planningCommissionPkAdapter,
+  // Disabled 2026-06: pc.gov.pk geo-blocks non-PK IPs at the firewall.
+  // Adapter code complete — to re-enable, configure PK_PROXY_URL and swap
+  // this line back to: planning_commission_pk: planningCommissionPkAdapter,
+  planning_commission_pk: disabledAdapter(
+    "planning_commission_pk",
+    "Planning Commission (PK)",
+    "Geo-blocked from non-PK IPs. Configure PK_PROXY_URL in .env and re-enable in index.ts.",
+  ),
   urban_unit_pk: urbanUnitPkAdapter,
-  // Re-enabled 2026-05. Adapter is complete; if the upstream URL is still
-  // returning a malformed redirect from the office network, runAdapter will
-  // log the fetch error and the rest of the ingest run continues — flip back
-  // to disabledAdapter() if the URL has not been corrected.
-  sop_pk: sopPkAdapter,
+  // Disabled 2026-06: www.sop.gov.pk geo-blocks non-PK IPs at the firewall.
+  // Adapter code complete — to re-enable, configure PK_PROXY_URL and swap
+  // this line back to: sop_pk: sopPkAdapter,
+  sop_pk: disabledAdapter(
+    "sop_pk",
+    "Survey of Pakistan",
+    "Geo-blocked from non-PK IPs. Configure PK_PROXY_URL in .env and re-enable in index.ts.",
+  ),
   ppwd_pk: disabledAdapter(
     "ppwd_pk",
     "Pakistan Public Works Department",
@@ -105,6 +127,14 @@ export const adapters: Record<TenderSourceId, IngestAdapter> = {
   sam_gov: samGovAdapter,        // requires free SAM_GOV_API_KEY
   ted_eu: tedEuAdapter,          // disabled — API v3 fields rework needed
 };
+
+// Keep these imports alive so the geo-blocked adapters can be re-enabled
+// with a one-line swap (see disabled entries above). The `void` references
+// satisfy TypeScript's no-unused-locals without changing runtime behaviour.
+void ppraPunjabAdapter;
+void nitbPkAdapter;
+void planningCommissionPkAdapter;
+void sopPkAdapter;
 
 export { runAdapter } from "./run.ts";
 export { httpJson } from "./util/http.ts";

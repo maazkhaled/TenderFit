@@ -17,7 +17,12 @@
  * specified, not at the same UTC moment.
  */
 
-export type DigestFrequency = "daily" | "every_n_days" | "weekly" | "monthly";
+export type DigestFrequency =
+  | "daily"
+  | "weekdays"
+  | "every_n_days"
+  | "weekly"
+  | "monthly";
 
 export interface ScheduleLike {
   frequency: DigestFrequency;
@@ -116,6 +121,11 @@ function minElapsedMsFor(schedule: ScheduleLike): number {
   switch (schedule.frequency) {
     case "daily":
       return 22 * 60 * 60 * 1000; // <1 local day, with sameLocalDay guard below
+    case "weekdays":
+      // Same as daily — at most one fire per local day. The Mon-Fri gate
+      // above already skips weekends; debounce just prevents Friday's
+      // tick from re-firing.
+      return 22 * 60 * 60 * 1000;
     case "every_n_days":
       // Allow a 30-min slack to absorb cron jitter so a "every 2 days at 8am"
       // schedule doesn't slip by a day when ticked 7:55 vs 8:25.
@@ -145,6 +155,11 @@ export function isDueNow(schedule: ScheduleLike, now: Date): boolean {
   if (local.hour > schedule.hourLocalEnd) return false;
 
   // ---- 2. Cadence-specific calendar gates ----
+  if (schedule.frequency === "weekdays") {
+    // Mon (1) .. Fri (5). Saturday (6) and Sunday (0) are off-days.
+    if (local.weekday === 0 || local.weekday === 6) return false;
+  }
+
   if (schedule.frequency === "weekly") {
     if (schedule.dayOfWeek == null) return false;
     if (local.weekday !== schedule.dayOfWeek) return false;
@@ -163,11 +178,9 @@ export function isDueNow(schedule: ScheduleLike, now: Date): boolean {
     if (diffMs < minElapsedMsFor(schedule)) return false;
 
     // Daily/window-based: even if 22h have passed, refuse if we already sent
-    // today in local time. This catches a schedule whose window spans
-    // midnight ('hourLocal=22, hourLocalEnd=23' on day N then '0..1' on N+1
-    // would be a different config — we only allow start<=end so this is
-    // mostly belt-and-braces).
-    if (schedule.frequency === "daily") {
+    // today in local time. Same guard applies to weekdays — we don't want
+    // a Tuesday morning fire to also fire again Tuesday afternoon.
+    if (schedule.frequency === "daily" || schedule.frequency === "weekdays") {
       let lastLocal: LocalParts;
       try {
         lastLocal = localParts(schedule.lastSentAt, tz);

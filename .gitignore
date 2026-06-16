@@ -14,3 +14,4 @@ coverage
 tsconfig.tsbuildinfo
 **/tsconfig.tsbuildinfo
 .env.production
+_tmp_*

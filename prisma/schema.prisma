@@ -212,6 +212,7 @@ model MatchFeedback {
 
 enum DigestFrequency {
   daily
+  weekdays
   every_n_days
   weekly
   monthly

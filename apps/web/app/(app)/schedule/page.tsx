@@ -18,6 +18,7 @@ const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", 
 
 const FREQUENCIES: Array<{ id: Frequency; label: string; hint: string }> = [
   { id: "daily", label: "Daily", hint: "Once per day, inside your time window." },
+  { id: "weekdays", label: "Weekdays", hint: "Mon–Fri only. Skips Saturday + Sunday." },
   { id: "every_n_days", label: "Every N days", hint: "Custom interval — e.g. every 2, 3, or 7 days." },
   { id: "weekly", label: "Weekly", hint: "Once a week on the day you choose." },
   { id: "monthly", label: "Monthly", hint: "Once a month on the calendar day you choose." },
@@ -160,7 +161,7 @@ export default function SchedulePage() {
           <CardDescription>How often to deliver the digest.</CardDescription>
         </CardHeader>
         <CardBody className="space-y-5">
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
             {FREQUENCIES.map(({ id, label }) => (
               <button
                 key={id}

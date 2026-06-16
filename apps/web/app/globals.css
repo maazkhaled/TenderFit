@@ -8,6 +8,19 @@
     --fg: #0a0a0a;
   }
 
+  /*
+   * Bump the base font size from the browser default (16px) to 17px.
+   * Every Tailwind text-* utility is rem-based, so this scales the
+   * entire app by ~6% — body copy, buttons, inputs, labels all get
+   * slightly more readable without changing any component.
+   *
+   * Set to 16.5–17.5px range if 17 feels too big or too small. Anything
+   * over 18 starts breaking dashboards on narrow screens.
+   */
+  html {
+    font-size: 17px;
+  }
+
   html,
   body {
     background-color: var(--bg);

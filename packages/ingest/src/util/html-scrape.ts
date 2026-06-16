@@ -22,6 +22,92 @@ const lastRequestAtPerHost = new Map<string, number>();
 const BROWSER_UA =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15";
 
+// =============================================================================
+//  Per-host HTTP proxy (for geo-blocked Pakistani gov hosts)
+// =============================================================================
+//
+// Several PK gov sites (eproc.punjab.gov.pk, nitb.gov.pk, pc.gov.pk,
+// sop.gov.pk) silently drop packets from non-Pakistani IPs at the
+// network firewall layer. Hostinger's Malaysian datacenter cannot reach
+// them. To route requests for these specific hosts through a Pakistani
+// proxy without affecting the rest of the ingest:
+//
+//   1. Stand up a tiny PK-based VPS (Cyber Internet, Nayatel, etc.)
+//      running an HTTP proxy (Squid is the simplest).
+//   2. Set PK_PROXY_URL in .env to the proxy URL, e.g.:
+//        PK_PROXY_URL="http://username:password@your-pk-proxy.example:3128"
+//   3. (Optional) Override the host list via PK_PROXY_HOSTS env (comma-
+//      separated). Defaults below cover the known geo-blocked PK gov hosts.
+//
+// When PK_PROXY_URL is unset, behaviour is unchanged — direct fetch.
+// When it's set, only requests to matching hosts route through it; every
+// other host (World Bank, UNGM, UK procurement, etc.) still goes direct.
+
+const DEFAULT_PROXY_HOSTS = [
+  "eproc.punjab.gov.pk",
+  "nitb.gov.pk",
+  "www.nitb.gov.pk",
+  "pc.gov.pk",
+  "www.pc.gov.pk",
+  "sop.gov.pk",
+  "www.sop.gov.pk",
+  "ppra.punjab.gov.pk",
+];
+
+function proxyHosts(): Set<string> {
+  const fromEnv = process.env.PK_PROXY_HOSTS?.trim();
+  if (fromEnv) {
+    return new Set(
+      fromEnv
+        .split(",")
+        .map((s) => s.trim().toLowerCase())
+        .filter(Boolean),
+    );
+  }
+  return new Set(DEFAULT_PROXY_HOSTS.map((h) => h.toLowerCase()));
+}
+
+function shouldUseProxy(url: string): boolean {
+  const proxyUrl = process.env.PK_PROXY_URL?.trim();
+  if (!proxyUrl) return false;
+  try {
+    const host = new URL(url).hostname.toLowerCase();
+    return proxyHosts().has(host);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Lazy-init a single shared undici ProxyAgent. We can't construct it at
+ * module load because PK_PROXY_URL may not be set, and we want a cheap
+ * "no proxy" path for production deployments that don't need one.
+ */
+let _proxyAgent: unknown = null;
+let _proxyAgentUrl: string | null = null;
+
+async function getProxyDispatcher(): Promise<unknown | null> {
+  const url = process.env.PK_PROXY_URL?.trim();
+  if (!url) return null;
+  if (_proxyAgent && _proxyAgentUrl === url) return _proxyAgent;
+  try {
+    // undici is bundled with Node 18+ — we import dynamically so this file
+    // stays portable.
+    const undici = (await import("undici")) as {
+      ProxyAgent: new (url: string) => unknown;
+    };
+    _proxyAgent = new undici.ProxyAgent(url);
+    _proxyAgentUrl = url;
+    return _proxyAgent;
+  } catch (err) {
+    console.error(
+      `[html-scrape] failed to construct ProxyAgent for ${url}:`,
+      err,
+    );
+    return null;
+  }
+}
+
 export interface FetchHtmlOpts {
   timeoutMs?: number;
   headers?: Record<string, string>;
@@ -111,10 +197,35 @@ export async function fetchHtml(url: string, opts: FetchHtmlOpts = {}): Promise<
         }
         return r.body;
       }
-      const res = await fetch(url, {
-        headers,
-        signal: AbortSignal.timeout(timeoutMs),
-      });
+      // Route through the PK proxy when the host is in the geo-block list
+      // AND PK_PROXY_URL is configured. Both have to be true — defaults
+      // to direct fetch when either is missing.
+      let res: Response;
+      if (shouldUseProxy(url)) {
+        const dispatcher = await getProxyDispatcher();
+        if (dispatcher) {
+          const undici = (await import("undici")) as {
+            fetch: typeof fetch;
+          };
+          res = await undici.fetch(url, {
+            headers,
+            signal: AbortSignal.timeout(timeoutMs),
+            // @ts-expect-error — undici accepts `dispatcher`, Node's fetch
+            // type doesn't yet expose it. Runtime behaviour is correct.
+            dispatcher,
+          });
+        } else {
+          res = await fetch(url, {
+            headers,
+            signal: AbortSignal.timeout(timeoutMs),
+          });
+        }
+      } else {
+        res = await fetch(url, {
+          headers,
+          signal: AbortSignal.timeout(timeoutMs),
+        });
+      }
       if (res.status === 429 || res.status >= 500) {
         await sleep(2_000 * (attempt + 1));
         continue;
@@ -201,12 +312,36 @@ export async function postForm(
   let lastErr: unknown = null;
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
-      const res = await fetch(url, {
-        method: "POST",
-        headers,
-        body,
-        signal: AbortSignal.timeout(timeoutMs),
-      });
+      // Same per-host proxy routing as fetchHtml.
+      let res: Response;
+      if (shouldUseProxy(url)) {
+        const dispatcher = await getProxyDispatcher();
+        if (dispatcher) {
+          const undici = (await import("undici")) as { fetch: typeof fetch };
+          res = await undici.fetch(url, {
+            method: "POST",
+            headers,
+            body,
+            signal: AbortSignal.timeout(timeoutMs),
+            // @ts-expect-error — see fetchHtml
+            dispatcher,
+          });
+        } else {
+          res = await fetch(url, {
+            method: "POST",
+            headers,
+            body,
+            signal: AbortSignal.timeout(timeoutMs),
+          });
+        }
+      } else {
+        res = await fetch(url, {
+          method: "POST",
+          headers,
+          body,
+          signal: AbortSignal.timeout(timeoutMs),
+        });
+      }
       if (res.status === 429 || res.status >= 500) {
         await sleep(2_000 * (attempt + 1));
         continue;

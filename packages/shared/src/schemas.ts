@@ -116,7 +116,7 @@ export const DigestScheduleInputSchema = z
      *   - weekly         → once per week on dayOfWeek, same window
      *   - monthly        → once per month on dayOfMonth, same window
      */
-    frequency: z.enum(["daily", "every_n_days", "weekly", "monthly"]),
+    frequency: z.enum(["daily", "weekdays", "every_n_days", "weekly", "monthly"]),
     /** Used only when frequency = every_n_days. Range 1..60. */
     intervalDays: z.number().int().min(1).max(60).default(2),
     /** Start of the preferred delivery window, 0..23. */

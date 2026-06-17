@@ -56,26 +56,58 @@ export async function sendDigest(
   const { Resend } = await import("resend");
   const client = new Resend(apiKey);
 
-  // Send one email per recipient so a single bad address doesn't bounce the
-  // whole batch. Resend's API accepts a `to` array too, but per-recipient
-  // sends give us clean per-address error reporting and avoid "one bad
-  // address breaks the whole send" semantics.
+  // Per-recipient sends with two guardrails:
+  //   1. 600 ms throttle between sends — Resend free tier is 2 req/sec, so
+  //      firing 3+ sends in rapid succession 429s the third. With this gap
+  //      we stay comfortably under the rate limit.
+  //   2. Single retry with 1.5 s backoff when a 429 / rate-limit error
+  //      comes back. Stops one-off rate-limit hiccups from silently
+  //      dropping recipients.
   const messageIds: string[] = [];
   const errors: string[] = [];
-  for (const to of recipients) {
-    try {
-      const result = await client.emails.send({ from, to, subject, html });
-      if (result.error) {
-        const msg = `${to}: ${result.error.name ?? "error"} — ${result.error.message ?? "unknown"}`;
-        errors.push(msg);
-        console.error(`[notifications] resend error tenant=${payload.tenantId} ${msg}`);
-      } else if (result.data?.id) {
-        messageIds.push(result.data.id);
+  const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+  const isRateLimit = (m: string) =>
+    /429|rate.?limit|too.?many.?requests/i.test(m);
+
+  for (let i = 0; i < recipients.length; i++) {
+    const to = recipients[i]!;
+    if (i > 0) await sleep(600);
+
+    const attemptSend = async (): Promise<
+      { id: string } | { error: string }
+    > => {
+      try {
+        const result = await client.emails.send({ from, to, subject, html });
+        if (result.error) {
+          return {
+            error: `${result.error.name ?? "error"}: ${result.error.message ?? "unknown"}`,
+          };
+        }
+        if (result.data?.id) return { id: result.data.id };
+        return { error: "no id returned and no error reported" };
+      } catch (err) {
+        return { error: err instanceof Error ? err.message : String(err) };
       }
-    } catch (err) {
-      const msg = `${to}: ${err instanceof Error ? err.message : String(err)}`;
+    };
+
+    let result = await attemptSend();
+    // One retry for rate-limit / 429 — sleep a beat then try again.
+    if ("error" in result && isRateLimit(result.error)) {
+      console.warn(
+        `[notifications] resend rate-limit on ${to}; retrying in 1500ms`,
+      );
+      await sleep(1500);
+      result = await attemptSend();
+    }
+
+    if ("id" in result) {
+      messageIds.push(result.id);
+    } else {
+      const msg = `${to}: ${result.error}`;
       errors.push(msg);
-      console.error(`[notifications] resend throw tenant=${payload.tenantId} ${msg}`);
+      console.error(
+        `[notifications] resend FINAL FAIL tenant=${payload.tenantId} ${msg}`,
+      );
     }
   }
 

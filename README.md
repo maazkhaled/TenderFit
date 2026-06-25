@@ -128,7 +128,9 @@ docker compose down -v            # NUKE database too (destructive)
 
 ## Data sources
 
-11 active by default (EBRD ECEPP added 2026-06-25), 1 needs a free API key, the rest (incl. 9 newly-catalogued Tier 1 / Tier 2 candidates that need verified feed shapes) disabled with documented reasons. The dashboard exposes per-tenant source filtering via checkboxes — disabled sources still appear but render with a "Temporarily not available" badge so users know the source is wired but currently silent.
+20 active by default (Tier 1 + Tier 2 all live as of 2026-06-25), 1 needs a free API key, the rest disabled with documented reasons. The dashboard exposes per-tenant source filtering via checkboxes — disabled sources still appear but render with a "Temporarily not available" badge so users know the source is wired but currently silent.
+
+Six of the new adapters render JS via **headless Chromium** (Playwright). The worker container ships with Chromium baked in — see the Dockerfile worker stage. Set `DISABLE_PLAYWRIGHT=1` in `.env` to skip browser-based fetches (saves ~400MB RAM but yields zero tenders from GeBIZ/GeM/GCA/CanadaBuys/AfDB/IFC/IADB/JICA).
 
 ### Active by default
 
@@ -145,6 +147,15 @@ docker compose down -v            # NUKE database too (destructive)
 | `ignite_pk` | Ignite National Technology Fund (PK) | PK IT R&D RFPs | HTML scrape |
 | `pda_pk` | Pakistan Digital Authority | Federal digital | HTML scrape (scoped TLS-relaxed) |
 | `ebrd` | EBRD via ECEPP | Multilateral (EE/CA/MENA) | HTML scrape with notice-type + state filtering |
+| `austender` | AusTender (Australia federal) | Government | HTML scrape (/atm/show anchors) |
+| `canada_buys` | CanadaBuys (federal Canada) | Government | Open-data CSV (no JS) |
+| `gem_india` | GeM India | Government | Playwright render of bidplus.gem.gov.in |
+| `gebiz_sg` | GeBIZ Singapore | Government | Playwright render of JSF/PrimeFaces listing |
+| `gca_uk` | UK Government Commercial Agency | Government (frameworks) | Playwright render of /agreements |
+| `afdb` | African Development Bank | Multilateral (Africa) | Playwright render of procurement notices |
+| `ifc` | International Finance Corporation | Multilateral (WBG private) | Playwright render of disclosures portal |
+| `iadb` | Inter-American Development Bank | Multilateral (LATAM) | Playwright render of procurement notices |
+| `jica` | Japan International Cooperation Agency | Multilateral (Asia/Africa) | Playwright render of announce/info |
 
 ### Optional (free API key)
 
@@ -165,21 +176,9 @@ These four adapters are fully implemented but their upstream hosts firewall non-
 
 The remaining sources (TED EU pending API v3 rework, several provincial PK PPRAs without stable feeds, NADRA, ADB, and most Kuwait/Saudi platforms) are registered as `disabledAdapter(...)` entries in `packages/ingest/src/index.ts` with a documented reason inline. They still appear in the dashboard's source picker (with the same "Temporarily not available" badge) so operators can see what's coming; ingest skips them.
 
-### Catalog-only (Tier 1 + Tier 2 candidates, adapters pending)
+### Defensive parsing for new adapters
 
-Added 2026-06-25 to the catalog so they show up in the UI and tenants can pre-opt-in. Adapters are stubbed as `disabledAdapter` until each upstream's feed shape is verified against live responses (same shipping discipline applied to the disabled set above — no speculative scrapers).
-
-| ID | Source | Type | Why catalog-only for now |
-|---|---|---|---|
-| `gem_india` | GeM India | Government | JS-rendered listing, needs verified public API |
-| `austender` | Australian federal AusTender | Government | HTML list is fetchable, detail-URL pattern needs verification |
-| `gca_uk` | UK GCA (ex-Crown Commercial) | Government | Agreement list visible but pagination is JS-driven |
-| `gebiz_sg` | GeBIZ Singapore | Government | Pure JSF/PrimeFaces — no static HTML payload |
-| `canada_buys` | CanadaBuys (federal Canada) | Government | Drupal frontend; needs verified open-data CSV URL |
-| `afdb` | African Development Bank | Multilateral | Empty payload on direct fetch — needs feed verification |
-| `ifc` | International Finance Corporation | Multilateral | Needs verified procurement-notices feed shape |
-| `jica` | Japan International Cooperation Agency | Multilateral | Needs verified procurement-notices feed shape |
-| `iadb` | Inter-American Development Bank | Multilateral | Empty payload on direct fetch — needs feed verification |
+The 9 Tier 1 / Tier 2 adapters all parse upstream HTML/CSV defensively: regex on stable URL fragments, log + skip rows that fail Zod validation rather than crash the run. If a portal reshuffles its template, that adapter yields zero tenders for one cron tick (logged as `[adapter-id] render failed:` or `skipped item:`) and we adjust the regex. The matcher and digest pipeline keep functioning on the other ~19 sources during any drift.
 
 ## LLM provider options
 
@@ -225,7 +224,8 @@ Planned next-up: Auth.js with **Sign in with Google** + email magic links — se
 
 ## Status
 
-- ✅ 11 sources actively ingest (incl. EBRD ECEPP); 1 with free API key; 4 geo-blocked but adapter-complete (need PK proxy); 9 Tier 1/2 catalog-only candidates pending feed verification; ~13 disabled with documented reasons
+- ✅ 20 sources actively ingest (10 original + EBRD + 9 new Tier 1/2: GeM India, AusTender, GCA UK, GeBIZ SG, CanadaBuys, AfDB, IFC, IADB, JICA); 1 with free API key; 4 geo-blocked but adapter-complete (need PK proxy); ~13 disabled with documented reasons
+- ✅ Headless Chromium baked into worker container (Playwright) — unlocks 6 JS-rendered tender portals; soft kill-switch via `DISABLE_PLAYWRIGHT=1`
 - ✅ Hybrid retrieval (dense + BM25-style FTS, RRF-fused) + Voyage cross-encoder rerank + LLM structured scoring
 - ✅ Long-tender chunking + mean-pool aggregation
 - ✅ Persistent embedding cache, provider-aware score blending

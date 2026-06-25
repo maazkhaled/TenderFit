@@ -77,10 +77,30 @@ CMD ["pnpm", "start"]
 # =============================================================================
 # Target: worker — long-running cron process (ingest + match + digest)
 # =============================================================================
+# The worker needs Chromium because several upstream tender portals
+# (GeBIZ Singapore, GeM India, GCA UK, CanadaBuys, IADB, AfDB, JICA) are
+# pure JS-rendered SPAs with no server-side HTML for the listings. The
+# playwright npm package is in @beta/ingest's deps; here we install the
+# OS-level dependencies + the Chromium browser binary itself.
+#
+# Size cost: ~300 MB on top of the base. Worth it — without it those
+# six adapters can't function.
+#
+# Pinned via package-lock for the npm package; Playwright keeps the
+# matching browser version in sync via `playwright install`.
 FROM base AS worker
 ENV NODE_ENV=production
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 
 COPY --from=builder /app /app
+WORKDIR /app
+
+# Install Chromium + the minimum apt deps Playwright needs to run it
+# headless on Debian slim. --with-deps pulls in the right libnss3,
+# libatk1.0-0, libcups2, etc. so we don't have to enumerate them.
+RUN pnpm exec playwright install --with-deps chromium \
+ && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app/worker
 
 # tsx executes TypeScript directly — matches how the worker runs in dev.

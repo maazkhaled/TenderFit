@@ -79,12 +79,25 @@ services:
       # Same secret the web container uses; the HTTP server in worker/src/server.ts
       # refuses any request without a matching Authorization: Bearer header.
       WORKER_AUTH_TOKEN: ${WORKER_AUTH_TOKEN}
+      # Chromium launched by Playwright stores its profile + cache here.
+      # Path matches PLAYWRIGHT_BROWSERS_PATH in the Dockerfile.
+      PLAYWRIGHT_BROWSERS_PATH: /ms-playwright
+      # Soft kill-switch for headless browser. Set to "1" if you ever
+      # need to run the worker without Chromium (saves ~400MB RAM but
+      # disables GeBIZ / GeM / GCA / CanadaBuys / AfDB / IFC / IADB /
+      # JICA — they'll log "playwright unavailable" and yield zero
+      # tenders each run instead of crashing).
+      # DISABLE_PLAYWRIGHT: "1"
     # Internal-only HTTP trigger API for the web UI's action buttons.
     # `expose:` makes 8080 reachable from `web` (and other compose services)
     # via http://worker:8080, but NEVER exposes it on the host or public
     # internet.
     expose:
       - "8080"
+    # Chromium's IPC sandbox uses /dev/shm. Default is 64MB on Docker,
+    # which makes some pages crash. 1GB is generous and Chromium will
+    # only allocate what it needs.
+    shm_size: "1gb"
 
   caddy:
     image: caddy:2-alpine

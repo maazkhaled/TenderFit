@@ -234,16 +234,14 @@ export const TENDER_SOURCE_CATALOG = [
     url: "https://www.contractsfinder.service.gov.uk/",
     description: "UK public sector contract opportunities.",
   },
-  // --- Tier 1 (added 2026-06-25): high-value IT/consulting markets ---
+  // --- Tier 1 (live as of 2026-06-25) ---
   {
     id: "gem_india",
     label: "GeM India",
     checkboxLabel: "GeM India",
     category: "government",
-    url: "https://gem.gov.in/",
+    url: "https://bidplus.gem.gov.in/all-bids",
     description: "Government e-Marketplace India — federal + state IT/services tenders, very high volume.",
-    availability: "unavailable",
-    unavailableReason: "Adapter pending — listing page is JS-rendered; needs verified public API or browser-rendered scrape.",
   },
   {
     id: "austender",
@@ -252,8 +250,6 @@ export const TENDER_SOURCE_CATALOG = [
     category: "government",
     url: "https://www.tenders.gov.au/atm",
     description: "Australian federal Approach to Market notices (IT, services, infrastructure).",
-    availability: "unavailable",
-    unavailableReason: "Adapter pending — HTML list is fetchable but per-tender detail URL pattern needs live verification.",
   },
   {
     id: "gca_uk",
@@ -262,8 +258,6 @@ export const TENDER_SOURCE_CATALOG = [
     category: "government",
     url: "https://www.gca.gov.uk/agreements",
     description: "UK framework agreements + dynamic marketplaces (rebranded from Crown Commercial Service in April 2026).",
-    availability: "unavailable",
-    unavailableReason: "Adapter pending — agreement list is fetchable but pagination is JS-driven; needs live shape verification.",
   },
   {
     id: "gebiz_sg",
@@ -272,8 +266,6 @@ export const TENDER_SOURCE_CATALOG = [
     category: "government",
     url: "https://www.gebiz.gov.sg/ptn/opportunity/BOListing.xhtml",
     description: "Singapore Government Electronic Business — public sector opportunities.",
-    availability: "unavailable",
-    unavailableReason: "Adapter pending — page is JSF/PrimeFaces, fully JS-rendered with no static HTML payload.",
   },
   {
     id: "canada_buys",
@@ -282,10 +274,8 @@ export const TENDER_SOURCE_CATALOG = [
     category: "government",
     url: "https://canadabuys.canada.ca/en/tender-opportunities",
     description: "Federal Canadian procurement opportunities (replaces Buy and Sell).",
-    availability: "unavailable",
-    unavailableReason: "Adapter pending — Drupal frontend is JS-required; needs verified open-data CSV/JSON URL.",
   },
-  // --- Tier 2 (added 2026-06-25): multilateral dev banks ---
+  // --- Tier 2 (live as of 2026-06-25): multilateral dev banks ---
   {
     id: "afdb",
     label: "African Development Bank",
@@ -293,18 +283,14 @@ export const TENDER_SOURCE_CATALOG = [
     category: "multilateral",
     url: "https://www.afdb.org/en/projects-and-operations/procurement/notices",
     description: "AfDB procurement notices — Africa-focused consulting and infrastructure.",
-    availability: "unavailable",
-    unavailableReason: "Adapter pending — listing page returned empty payload; needs verified feed shape or browser-rendered scrape.",
   },
   {
     id: "ifc",
     label: "International Finance Corporation",
     checkboxLabel: "IFC",
     category: "multilateral",
-    url: "https://www.ifc.org/en/where-we-work/global/projects/global-corporate-procurement",
-    description: "World Bank Group's private-sector arm — RFP-style consulting opportunities.",
-    availability: "unavailable",
-    unavailableReason: "Adapter pending — needs verified procurement-notices feed shape.",
+    url: "https://disclosures.ifc.org/projects-list",
+    description: "World Bank Group's private-sector arm — project disclosures + RFP opportunities.",
   },
   {
     id: "ebrd",
@@ -324,8 +310,6 @@ export const TENDER_SOURCE_CATALOG = [
     category: "multilateral",
     url: "https://www.jica.go.jp/english/announce/info/index.html",
     description: "Japanese aid agency procurement — IT/infra projects across Asia + Africa.",
-    availability: "unavailable",
-    unavailableReason: "Adapter pending — needs verified procurement-notices feed shape.",
   },
   {
     id: "iadb",
@@ -334,8 +318,6 @@ export const TENDER_SOURCE_CATALOG = [
     category: "multilateral",
     url: "https://www.iadb.org/en/projects/procurement-notices",
     description: "IADB procurement notices — Latin America infrastructure + consulting.",
-    availability: "unavailable",
-    unavailableReason: "Adapter pending — needs verified procurement-notices feed shape.",
   },
 ] as const satisfies readonly TenderSourceCatalogEntry[];
 

@@ -18,6 +18,15 @@ import { pdaPkAdapter } from "./adapters/pda_pk.ts";
 import { sopPkAdapter } from "./adapters/sop_pk.ts";
 import { ppraPunjabAdapter } from "./adapters/ppra_punjab.ts";
 import { ebrdAdapter } from "./adapters/ebrd.ts";
+import { austenderAdapter } from "./adapters/austender.ts";
+import { canadaBuysAdapter } from "./adapters/canada_buys.ts";
+import { gebizSgAdapter } from "./adapters/gebiz_sg.ts";
+import { gemIndiaAdapter } from "./adapters/gem_india.ts";
+import { gcaUkAdapter } from "./adapters/gca_uk.ts";
+import { afdbAdapter } from "./adapters/afdb.ts";
+import { ifcAdapter } from "./adapters/ifc.ts";
+import { iadbAdapter } from "./adapters/iadb.ts";
+import { jicaAdapter } from "./adapters/jica.ts";
 
 export const adapters: Record<TenderSourceId, IngestAdapter> = {
   world_bank: worldBankAdapter,
@@ -128,67 +137,26 @@ export const adapters: Record<TenderSourceId, IngestAdapter> = {
   sam_gov: samGovAdapter,        // requires free SAM_GOV_API_KEY
   ted_eu: tedEuAdapter,          // disabled — API v3 fields rework needed
 
-  // --- Tier 1 (added 2026-06-25, catalog-only) ---
-  // All five sources are wired into the catalog + UI (with the
-  // "Temporarily not available" badge) so users can opt in ahead of time.
-  // Adapters live as disabledAdapter stubs until each upstream's feed
-  // shape is verified against a live response. Don't ship speculative
-  // scrapers — same rule we've applied to etimad_sa, adb, kuwait_*.
-  gem_india: disabledAdapter(
-    "gem_india",
-    "GeM India",
-    "Listing pages (gem.gov.in/view_all_bids, bidplus.gem.gov.in/all-bids) are JS-rendered with no static payload. Needs verified public API access or browser-rendered scrape.",
-  ),
-  austender: disabledAdapter(
-    "austender",
-    "AusTender",
-    "HTML list is fetchable but per-tender detail URL pattern + field shape (deadline, buyer, value) need live verification before shipping an adapter.",
-  ),
-  gca_uk: disabledAdapter(
-    "gca_uk",
-    "GCA UK (Government Commercial Agency)",
-    "Agreement list is fetchable but pagination + detail links are JS-driven. Note: GCA is the rebranded Crown Commercial Service as of April 2026.",
-  ),
-  gebiz_sg: disabledAdapter(
-    "gebiz_sg",
-    "GeBIZ Singapore",
-    "Page is JSF/PrimeFaces — entire opportunity listing is JS-rendered with no static HTML payload. Needs browser automation or an undocumented JSON endpoint.",
-  ),
-  canada_buys: disabledAdapter(
-    "canada_buys",
-    "CanadaBuys",
-    "Drupal frontend requires JS. Open-data CSV/JSON exists per docs but the canonical URL needs manual verification before wiring.",
-  ),
+  // --- Tier 1 (live as of 2026-06-25) ---
+  // CanadaBuys + AusTender: plain HTTP (open data CSV + server-rendered HTML).
+  // GeM India / GeBIZ / GCA UK: JS-rendered SPAs — Playwright via fetchRendered().
+  // Each adapter parses defensively: regex on stable URL fragments, log + skip
+  // rows that fail validation rather than crashing the run.
+  gem_india: gemIndiaAdapter,
+  austender: austenderAdapter,
+  gca_uk: gcaUkAdapter,
+  gebiz_sg: gebizSgAdapter,
+  canada_buys: canadaBuysAdapter,
 
-  // --- Tier 2 (added 2026-06-25, catalog-only) ---
-  // Multilateral development banks. All five returned empty payloads on
-  // direct fetch from the production VPS region — same disabledAdapter
-  // pattern as Tier 1 until live feed shape is confirmed.
-  afdb: disabledAdapter(
-    "afdb",
-    "African Development Bank",
-    "Listing page returned empty payload on direct fetch. Needs verified procurement-notices feed (RSS/JSON) or browser-rendered scrape.",
-  ),
-  ifc: disabledAdapter(
-    "ifc",
-    "International Finance Corporation",
-    "Procurement page returned empty payload on direct fetch. Needs verified notices feed shape.",
-  ),
-  // Live as of 2026-06-25 — scrapes ECEPP server-rendered table at
-  // ecepp.ebrd.com. Filters to Open notices with biddable types
-  // (Invitation For Tenders / Prequalification / EOI / RFP), drops
-  // Contract Award / Shortlist rows. Country derived from title prefix.
+  // --- Tier 2 (multilateral dev banks, live as of 2026-06-25) ---
+  // EBRD via ECEPP server-rendered table; others via Playwright. IFC has
+  // no biddable deadlines (project disclosures, not tenders) — flagged
+  // as deadlineAt=null and treated by the matcher as info-only.
+  afdb: afdbAdapter,
+  ifc: ifcAdapter,
   ebrd: ebrdAdapter,
-  jica: disabledAdapter(
-    "jica",
-    "Japan International Cooperation Agency",
-    "Needs verified procurement-notices feed shape before shipping adapter.",
-  ),
-  iadb: disabledAdapter(
-    "iadb",
-    "Inter-American Development Bank",
-    "Project-search page returned empty payload on direct fetch. Needs verified procurement-notices feed shape.",
-  ),
+  jica: jicaAdapter,
+  iadb: iadbAdapter,
 };
 
 // Keep these imports alive so the geo-blocked adapters can be re-enabled

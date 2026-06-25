@@ -102,29 +102,55 @@ export function SourceFilter({
           )}
         >
           <input name="sourceFilter" type="hidden" value="1" />
-          {sources.map((source) => (
-            <label
-              key={source.id}
-              className="flex min-h-20 cursor-pointer items-start gap-3 rounded-md border border-zinc-200 p-3 hover:bg-zinc-50"
-            >
-              <input
-                checked={selected.has(source.id)}
-                className="mt-1 h-4 w-4 rounded border-zinc-300 text-zinc-900"
-                name="sources"
-                onChange={(event) => toggleSource(source.id, event.target.checked)}
-                type="checkbox"
-                value={source.id}
-              />
-              <span className="min-w-0">
-                <span className="block text-sm font-medium text-zinc-900">
-                  {source.checkboxLabel}
+          {sources.map((source) => {
+            // Sources marked "unavailable" in the catalog are wired in but
+            // turned off in the runtime adapter registry (see
+            // packages/ingest/src/index.ts). They stay visible/checkable so
+            // tenants can opt in ahead of re-enable, but a small grey badge
+            // makes it clear no tenders will arrive from them right now.
+            const isUnavailable = source.availability === "unavailable";
+            return (
+              <label
+                key={source.id}
+                className={cn(
+                  "flex min-h-20 cursor-pointer items-start gap-3 rounded-md border border-zinc-200 p-3 hover:bg-zinc-50",
+                  isUnavailable && "opacity-70",
+                )}
+              >
+                <input
+                  checked={selected.has(source.id)}
+                  className="mt-1 h-4 w-4 rounded border-zinc-300 text-zinc-900"
+                  name="sources"
+                  onChange={(event) => toggleSource(source.id, event.target.checked)}
+                  type="checkbox"
+                  value={source.id}
+                />
+                <span className="min-w-0">
+                  <span className="flex flex-wrap items-center gap-2">
+                    <span className="text-sm font-medium text-zinc-900">
+                      {source.checkboxLabel}
+                    </span>
+                    {isUnavailable ? (
+                      <span
+                        className="inline-flex items-center rounded-full bg-zinc-100 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-zinc-600"
+                        title={source.unavailableReason ?? undefined}
+                      >
+                        Temporarily not available
+                      </span>
+                    ) : null}
+                  </span>
+                  <span className="mt-1 block text-xs leading-5 text-zinc-500">
+                    {source.description}
+                    {isUnavailable && source.unavailableReason ? (
+                      <span className="mt-1 block text-zinc-400">
+                        {source.unavailableReason}
+                      </span>
+                    ) : null}
+                  </span>
                 </span>
-                <span className="mt-1 block text-xs leading-5 text-zinc-500">
-                  {source.description}
-                </span>
-              </span>
-            </label>
-          ))}
+              </label>
+            );
+          })}
         </form>
       </CardBody>
     </Card>

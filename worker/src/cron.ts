@@ -47,16 +47,37 @@ async function bootstrap(): Promise<void> {
 }
 
 function schedule(): void {
-  cron.schedule("0 */6 * * *", () => {
+  // Frequencies sized for digest-driven usage (most tenants read once per
+  // day via email). Previous schedule (ingest=6h, match=1h) generated
+  // ~480 Gemini LLM calls per day — well over the 250 RPD free-tier cap.
+  // Current schedule cuts that ~6x while keeping data fresh within a few
+  // hours of any digest fire. Users who want sub-daily freshness can hit
+  // the "Run now" buttons in the dashboard ActionsPanel.
+
+  // Ingest at 02:00 and 14:00 UTC daily — two cycles per day, well-spaced
+  // so no single upstream source gets hit twice in <12h.
+  cron.schedule("0 2,14 * * *", () => {
     void safeRun("ingest", runIngest);
   });
-  cron.schedule("5 * * * *", () => {
+
+  // Match at 03:00, 09:00, 15:00, 21:00 UTC — four cycles per day, each
+  // ~1h after a corresponding ingest finishes (with margin for slow
+  // sources). LLM cost is now ~20 matches × 4 runs = 80 calls/day,
+  // comfortably under Gemini free-tier 250 RPD.
+  cron.schedule("0 3,9,15,21 * * *", () => {
     void safeRun("match", runMatch);
   });
+
+  // Digest stays at 15 min — cheap DB-only check; the isDueNow gate
+  // prevents emails from actually firing more than each tenant's chosen
+  // cadence (daily / weekdays / weekly / monthly / every-N-days).
   cron.schedule("*/15 * * * *", () => {
     void safeRun("digest", () => runDigest([]));
   });
-  console.log("[cron] scheduled: ingest=6h, match=1h, digest=15m");
+
+  console.log(
+    "[cron] scheduled: ingest=12h (02,14 UTC), match=6h (03,09,15,21 UTC), digest=15m",
+  );
 }
 
 async function shutdown(signal: string): Promise<void> {

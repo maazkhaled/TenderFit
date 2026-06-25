@@ -60,5 +60,19 @@ export const TENDER_SOURCES = [
   "kuwait_cbk",
   "uk_find_a_tender",
   "uk_contracts_finder",
+  // Tier 1 — high-value adds for IT/consulting (added 2026-06-25). Catalog
+  // + UI wired; adapters stubbed via disabledAdapter pending verified feed
+  // shape. See packages/ingest/src/index.ts for per-source rationale.
+  "gem_india",
+  "austender",
+  "gca_uk",
+  "gebiz_sg",
+  "canada_buys",
+  // Tier 2 — multilateral development banks, complement existing World Bank
+  "afdb",
+  "ifc",
+  "ebrd",
+  "jica",
+  "iadb",
 ] as const;
 export type TenderSourceId = (typeof TENDER_SOURCES)[number];

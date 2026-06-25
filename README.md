@@ -40,8 +40,10 @@ The LLM stack is fully swappable via env vars — see [LLM provider table](#llm-
 | Host | Hostinger KVM 2 VPS (Malaysia datacenter) |
 | Domain DNS | Hostinger DNS for `detex.site`, A record for `tenderfit` |
 | TLS | Caddy auto-issued Let's Encrypt cert (renews automatically) |
-| Email sender | Resend sandbox `onboarding@resend.dev` (move to verified domain later) |
+| Email sender | Resend with verified subdomain `mail.detex.site` (SPF + DKIM + DMARC). From-address: `TenderFit <info@mail.detex.site>` |
 | Health check | UptimeRobot pings `/login` every 5 min |
+
+The email sender was moved off the apex domain `detex.site` after Microsoft 365 recipients (Outlook) repeatedly bounced messages and Resend auto-unverified the domain. The subdomain `mail.detex.site` is reputationally isolated, has its own SPF/DKIM/DMARC, and survives Microsoft's greylisting.
 
 ## Quick start (local dev)
 
@@ -99,7 +101,15 @@ The dashboard has three buttons under **Run now** that trigger the same actions 
 | Find new matches | `docker compose exec -w /app worker pnpm worker:match` | Embed pending tenders + score new matches |
 | Send digest now | `docker compose exec -w /app worker pnpm worker:digest -- --tenant=<slug>` | Send an immediate digest, bypassing the cron schedule |
 
-The cron continues to run in the background (ingest every 6h, match every hour, digest every 15 min — filtered by each tenant's `DigestSchedule`).
+The cron continues to run in the background. Frequencies are tuned for the Gemini free tier (250 RPD) and digest-driven usage:
+
+| Job | Cadence | Why |
+|---|---|---|
+| Ingest | 2× per day (02:00 + 14:00 UTC) | Most upstream sources update once or twice a day; two cycles keep digests fresh without thrashing portals |
+| Match | 4× per day (03:00, 09:00, 15:00, 21:00 UTC) | Each match call hits Gemini; 4× × ~20 pending = ~80 LLM calls/day, well under 250 RPD |
+| Digest | every 15 min | Cheap DB-only check; the `isDueNow` gate ensures emails only actually fire on each tenant's chosen cadence (daily / weekdays / weekly / monthly / every-N-days) |
+
+If you want sub-daily freshness, the dashboard's **Run now → Fetch latest tenders** button kicks off an ad-hoc ingest immediately.
 
 ```bash
 # View live logs
@@ -118,33 +128,58 @@ docker compose down -v            # NUKE database too (destructive)
 
 ## Data sources
 
-15 active by default, 1 needs free API key, 12 disabled pending upstream changes. The dashboard exposes per-tenant source filtering via checkboxes.
+10 active by default, 1 needs a free API key, the rest (incl. 10 newly-catalogued Tier 1 / Tier 2 candidates) disabled with documented reasons. The dashboard exposes per-tenant source filtering via checkboxes — disabled sources still appear but render with a "Temporarily not available" badge so users know the source is wired but currently silent.
 
 ### Active by default
 
 | ID | Source | Coverage | Mechanism |
 |---|---|---|---|
-| `world_bank` | World Bank | Multilateral | JSON API |
+| `world_bank` | World Bank | Multilateral | JSON API (award filter scans both `notice_type` and description text) |
 | `uk_find_a_tender` | UK Find a Tender | Above-threshold UK | OCDS JSON |
 | `uk_contracts_finder` | UK Contracts Finder | Below-threshold + SME UK | OCDS JSON |
-| `ppra_pk` | Pakistan Federal PPRA (EPMS) | Federal PK | HTML scrape |
+| `ppra_pk` | Pakistan Federal PPRA (EPMS) | Federal PK | HTML scrape (works because EPMS itself isn't geo-blocked) |
 | `ungm` | UNGM | UN agency procurement | HTML scrape |
 | `undp` | UNDP Procurement | UN agency procurement | RSS / RDF |
-| `nitb_pk` | National IT Board (PK) | Federal IT/digital | HTML scrape |
 | `pitb_pk` | Punjab IT Board | Punjab IT/digital | HTML scrape |
-| `planning_commission_pk` | Planning Commission (PK) | Federal planning | HTML scrape |
 | `urban_unit_pk` | The Urban Unit (PK) | Punjab urban planning | HTML scrape |
 | `ignite_pk` | Ignite National Technology Fund (PK) | PK IT R&D RFPs | HTML scrape |
 | `pda_pk` | Pakistan Digital Authority | Federal digital | HTML scrape (scoped TLS-relaxed) |
-| `sop_pk` | Survey of Pakistan | Federal survey/GIS | HTML scrape |
 
 ### Optional (free API key)
 
 - `sam_gov` — SAM.gov US Federal — register at https://sam.gov for `SAM_GOV_API_KEY`
 
-### Disabled
+### Temporarily unavailable (geo-blocked from non-PK IPs)
 
-The remaining sources (TED EU, several provincial PK PPRAs, NADRA, several Kuwait & Saudi platforms) are registered as `disabledAdapter(...)` entries in `packages/ingest/src/index.ts` with a documented reason. They still appear in the dashboard's source picker so operators can see what's coming; ingest skips them. See the disabled reasons inline for what each one needs to come online.
+These four adapters are fully implemented but their upstream hosts firewall non-Pakistani IP ranges, so the Malaysian production VPS can't reach them. To re-enable, configure `PK_PROXY_URL` in `.env` (a Pakistan-resident HTTP proxy) and swap the line in `packages/ingest/src/index.ts` back from `disabledAdapter(…)` to the real adapter — the imports and the `void` references at the bottom of that file keep the swap to one line.
+
+| ID | Source | What's needed |
+|---|---|---|
+| `ppra_punjab` | Punjab PPRA | PK-resident proxy via `PK_PROXY_URL` |
+| `nitb_pk` | National IT Board | PK-resident proxy via `PK_PROXY_URL` |
+| `planning_commission_pk` | Planning Commission | PK-resident proxy via `PK_PROXY_URL` |
+| `sop_pk` | Survey of Pakistan | PK-resident proxy via `PK_PROXY_URL` |
+
+### Disabled (upstream constraint)
+
+The remaining sources (TED EU pending API v3 rework, several provincial PK PPRAs without stable feeds, NADRA, ADB, and most Kuwait/Saudi platforms) are registered as `disabledAdapter(...)` entries in `packages/ingest/src/index.ts` with a documented reason inline. They still appear in the dashboard's source picker (with the same "Temporarily not available" badge) so operators can see what's coming; ingest skips them.
+
+### Catalog-only (Tier 1 + Tier 2 candidates, adapters pending)
+
+Added 2026-06-25 to the catalog so they show up in the UI and tenants can pre-opt-in. Adapters are stubbed as `disabledAdapter` until each upstream's feed shape is verified against live responses (same shipping discipline applied to the disabled set above — no speculative scrapers).
+
+| ID | Source | Type | Why catalog-only for now |
+|---|---|---|---|
+| `gem_india` | GeM India | Government | JS-rendered listing, needs verified public API |
+| `austender` | Australian federal AusTender | Government | HTML list is fetchable, detail-URL pattern needs verification |
+| `gca_uk` | UK GCA (ex-Crown Commercial) | Government | Agreement list visible but pagination is JS-driven |
+| `gebiz_sg` | GeBIZ Singapore | Government | Pure JSF/PrimeFaces — no static HTML payload |
+| `canada_buys` | CanadaBuys (federal Canada) | Government | Drupal frontend; needs verified open-data CSV URL |
+| `afdb` | African Development Bank | Multilateral | Empty payload on direct fetch — needs feed verification |
+| `ifc` | International Finance Corporation | Multilateral | Needs verified procurement-notices feed shape |
+| `ebrd` | European Bank for Reconstruction & Development | Multilateral | Needs verified procurement-notices feed shape |
+| `jica` | Japan International Cooperation Agency | Multilateral | Needs verified procurement-notices feed shape |
+| `iadb` | Inter-American Development Bank | Multilateral | Empty payload on direct fetch — needs feed verification |
 
 ## LLM provider options
 
@@ -190,7 +225,7 @@ Planned next-up: Auth.js with **Sign in with Google** + email magic links — se
 
 ## Status
 
-- ✅ 13 sources actively ingest; 1 with free API key; 12 disabled with documented reasons
+- ✅ 10 sources actively ingest; 1 with free API key; 4 geo-blocked but adapter-complete (need PK proxy); ~13 disabled with documented reasons
 - ✅ Hybrid retrieval (dense + BM25-style FTS, RRF-fused) + Voyage cross-encoder rerank + LLM structured scoring
 - ✅ Long-tender chunking + mean-pool aggregation
 - ✅ Persistent embedding cache, provider-aware score blending
@@ -198,10 +233,14 @@ Planned next-up: Auth.js with **Sign in with Google** + email magic links — se
 - ✅ Eight LLM provider backends drop in via env-var swap
 - ✅ International collaboration mode (`ignoreLocation` toggle on profile)
 - ✅ Frontend "Run now" buttons for ingest/match/digest (no CLI needed)
-- ✅ Multi-recipient digest emails (per-tenant recipient list)
+- ✅ Multi-recipient digest emails (per-tenant recipient list, ≤20)
+- ✅ Resend throttle + 429 retry (no more silent third-recipient drops)
 - ✅ Per-tenant min-fit-score control (live slider on dashboard, applies to digest too)
-- ✅ Customisable digest schedule with time window + 4 cadences (daily / every N days / weekly / monthly)
+- ✅ Customisable digest schedule with time window + 5 cadences (daily / weekdays / every N days / weekly / monthly)
+- ✅ World Bank award filter scans description text (not just `notice_type`)
+- ✅ "Temporarily not available" UI badge on disabled sources
 - ✅ Production deployment on Hostinger KVM 2 with Caddy + Let's Encrypt TLS
+- ✅ Verified email subdomain `mail.detex.site` with SPF + DKIM + DMARC
 - ⏳ Real auth (Google OAuth + email verification) — planned
 - ⏳ Multi-tenant sales / billing — planned
 

@@ -17,6 +17,16 @@ export interface TenderSourceCatalogEntry {
   url: string;
   checkboxLabel: string;
   description: string;
+  /**
+   * Whether the source is currently producing tenders. "unavailable"
+   * means the adapter is wired into the catalog but turned off in the
+   * runtime registry — see packages/ingest/src/index.ts for the
+   * authoritative state. The UI shows a "Temporarily not available"
+   * badge for these so users know the source exists but isn't ingesting.
+   */
+  availability?: "active" | "unavailable";
+  /** Short human-readable reason shown alongside the unavailable badge. */
+  unavailableReason?: string;
 }
 
 export interface NormalizedTender {

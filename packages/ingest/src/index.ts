@@ -126,6 +126,68 @@ export const adapters: Record<TenderSourceId, IngestAdapter> = {
   ungm: ungmAdapter,             // re-enabled via polite UNGM scrape
   sam_gov: samGovAdapter,        // requires free SAM_GOV_API_KEY
   ted_eu: tedEuAdapter,          // disabled — API v3 fields rework needed
+
+  // --- Tier 1 (added 2026-06-25, catalog-only) ---
+  // All five sources are wired into the catalog + UI (with the
+  // "Temporarily not available" badge) so users can opt in ahead of time.
+  // Adapters live as disabledAdapter stubs until each upstream's feed
+  // shape is verified against a live response. Don't ship speculative
+  // scrapers — same rule we've applied to etimad_sa, adb, kuwait_*.
+  gem_india: disabledAdapter(
+    "gem_india",
+    "GeM India",
+    "Listing pages (gem.gov.in/view_all_bids, bidplus.gem.gov.in/all-bids) are JS-rendered with no static payload. Needs verified public API access or browser-rendered scrape.",
+  ),
+  austender: disabledAdapter(
+    "austender",
+    "AusTender",
+    "HTML list is fetchable but per-tender detail URL pattern + field shape (deadline, buyer, value) need live verification before shipping an adapter.",
+  ),
+  gca_uk: disabledAdapter(
+    "gca_uk",
+    "GCA UK (Government Commercial Agency)",
+    "Agreement list is fetchable but pagination + detail links are JS-driven. Note: GCA is the rebranded Crown Commercial Service as of April 2026.",
+  ),
+  gebiz_sg: disabledAdapter(
+    "gebiz_sg",
+    "GeBIZ Singapore",
+    "Page is JSF/PrimeFaces — entire opportunity listing is JS-rendered with no static HTML payload. Needs browser automation or an undocumented JSON endpoint.",
+  ),
+  canada_buys: disabledAdapter(
+    "canada_buys",
+    "CanadaBuys",
+    "Drupal frontend requires JS. Open-data CSV/JSON exists per docs but the canonical URL needs manual verification before wiring.",
+  ),
+
+  // --- Tier 2 (added 2026-06-25, catalog-only) ---
+  // Multilateral development banks. All five returned empty payloads on
+  // direct fetch from the production VPS region — same disabledAdapter
+  // pattern as Tier 1 until live feed shape is confirmed.
+  afdb: disabledAdapter(
+    "afdb",
+    "African Development Bank",
+    "Listing page returned empty payload on direct fetch. Needs verified procurement-notices feed (RSS/JSON) or browser-rendered scrape.",
+  ),
+  ifc: disabledAdapter(
+    "ifc",
+    "International Finance Corporation",
+    "Procurement page returned empty payload on direct fetch. Needs verified notices feed shape.",
+  ),
+  ebrd: disabledAdapter(
+    "ebrd",
+    "European Bank for Reconstruction and Development",
+    "Needs verified procurement-notices feed shape before shipping adapter.",
+  ),
+  jica: disabledAdapter(
+    "jica",
+    "Japan International Cooperation Agency",
+    "Needs verified procurement-notices feed shape before shipping adapter.",
+  ),
+  iadb: disabledAdapter(
+    "iadb",
+    "Inter-American Development Bank",
+    "Project-search page returned empty payload on direct fetch. Needs verified procurement-notices feed shape.",
+  ),
 };
 
 // Keep these imports alive so the geo-blocked adapters can be re-enabled

@@ -20,6 +20,8 @@ export const TenderSourceCatalogEntrySchema = z.object({
   url: z.string().url(),
   checkboxLabel: z.string().min(1),
   description: z.string().min(1),
+  availability: z.enum(["active", "unavailable"]).optional(),
+  unavailableReason: z.string().min(1).optional(),
 });
 
 export const NormalizedTenderSchema = z.object({

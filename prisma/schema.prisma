@@ -128,6 +128,20 @@ enum TenderSource {
   kuwait_cbk
   uk_find_a_tender
   uk_contracts_finder
+  // Tier 1 (added 2026-06-25) — high-value IT/consulting markets.
+  // Must stay in sync with TENDER_SOURCES in packages/shared/src/constants.ts
+  // and with the adapter registry in packages/ingest/src/index.ts.
+  gem_india
+  austender
+  gca_uk
+  gebiz_sg
+  canada_buys
+  // Tier 2 (added 2026-06-25) — multilateral development banks.
+  afdb
+  ifc
+  ebrd
+  jica
+  iadb
 }
 
 model Tender {

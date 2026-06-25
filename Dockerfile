@@ -98,7 +98,13 @@ WORKDIR /app
 # Install Chromium + the minimum apt deps Playwright needs to run it
 # headless on Debian slim. --with-deps pulls in the right libnss3,
 # libatk1.0-0, libcups2, etc. so we don't have to enumerate them.
-RUN pnpm exec playwright install --with-deps chromium \
+#
+# Why --filter @beta/ingest: pnpm hoists workspace bins into each
+# package's node_modules/.bin, not into the workspace root. So a bare
+# `pnpm exec playwright` from /app fails with "Command not found". The
+# --filter form runs the command inside @beta/ingest's context, where
+# the playwright binary is actually resolvable.
+RUN pnpm --filter @beta/ingest exec playwright install --with-deps chromium \
  && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app/worker

@@ -128,7 +128,7 @@ docker compose down -v            # NUKE database too (destructive)
 
 ## Data sources
 
-10 active by default, 1 needs a free API key, the rest (incl. 10 newly-catalogued Tier 1 / Tier 2 candidates) disabled with documented reasons. The dashboard exposes per-tenant source filtering via checkboxes — disabled sources still appear but render with a "Temporarily not available" badge so users know the source is wired but currently silent.
+11 active by default (EBRD ECEPP added 2026-06-25), 1 needs a free API key, the rest (incl. 9 newly-catalogued Tier 1 / Tier 2 candidates that need verified feed shapes) disabled with documented reasons. The dashboard exposes per-tenant source filtering via checkboxes — disabled sources still appear but render with a "Temporarily not available" badge so users know the source is wired but currently silent.
 
 ### Active by default
 
@@ -144,6 +144,7 @@ docker compose down -v            # NUKE database too (destructive)
 | `urban_unit_pk` | The Urban Unit (PK) | Punjab urban planning | HTML scrape |
 | `ignite_pk` | Ignite National Technology Fund (PK) | PK IT R&D RFPs | HTML scrape |
 | `pda_pk` | Pakistan Digital Authority | Federal digital | HTML scrape (scoped TLS-relaxed) |
+| `ebrd` | EBRD via ECEPP | Multilateral (EE/CA/MENA) | HTML scrape with notice-type + state filtering |
 
 ### Optional (free API key)
 
@@ -177,7 +178,6 @@ Added 2026-06-25 to the catalog so they show up in the UI and tenants can pre-op
 | `canada_buys` | CanadaBuys (federal Canada) | Government | Drupal frontend; needs verified open-data CSV URL |
 | `afdb` | African Development Bank | Multilateral | Empty payload on direct fetch — needs feed verification |
 | `ifc` | International Finance Corporation | Multilateral | Needs verified procurement-notices feed shape |
-| `ebrd` | European Bank for Reconstruction & Development | Multilateral | Needs verified procurement-notices feed shape |
 | `jica` | Japan International Cooperation Agency | Multilateral | Needs verified procurement-notices feed shape |
 | `iadb` | Inter-American Development Bank | Multilateral | Empty payload on direct fetch — needs feed verification |
 
@@ -225,7 +225,7 @@ Planned next-up: Auth.js with **Sign in with Google** + email magic links — se
 
 ## Status
 
-- ✅ 10 sources actively ingest; 1 with free API key; 4 geo-blocked but adapter-complete (need PK proxy); ~13 disabled with documented reasons
+- ✅ 11 sources actively ingest (incl. EBRD ECEPP); 1 with free API key; 4 geo-blocked but adapter-complete (need PK proxy); 9 Tier 1/2 catalog-only candidates pending feed verification; ~13 disabled with documented reasons
 - ✅ Hybrid retrieval (dense + BM25-style FTS, RRF-fused) + Voyage cross-encoder rerank + LLM structured scoring
 - ✅ Long-tender chunking + mean-pool aggregation
 - ✅ Persistent embedding cache, provider-aware score blending

@@ -311,10 +311,11 @@ export const TENDER_SOURCE_CATALOG = [
     label: "European Bank for Reconstruction and Development",
     checkboxLabel: "EBRD",
     category: "multilateral",
-    url: "https://www.ebrd.com/work-with-us/procurement.html",
-    description: "EBRD procurement notices — Eastern Europe, Central Asia, MENA consulting flow.",
-    availability: "unavailable",
-    unavailableReason: "Adapter pending — needs verified procurement-notices feed shape.",
+    // Note: ECEPP is the canonical procurement-notices home as of 2024;
+    // the marketing landing at ebrd.com/work-with-us/procurement just
+    // redirects users there. We point the catalog URL at ECEPP directly.
+    url: "https://ecepp.ebrd.com/delta/noticeSearchResults.html",
+    description: "EBRD procurement notices via ECEPP — Eastern Europe, Central Asia, MENA consulting/works/goods.",
   },
   {
     id: "jica",

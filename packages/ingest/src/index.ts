@@ -17,6 +17,7 @@ import { undpAdapter } from "./adapters/undp.ts";
 import { pdaPkAdapter } from "./adapters/pda_pk.ts";
 import { sopPkAdapter } from "./adapters/sop_pk.ts";
 import { ppraPunjabAdapter } from "./adapters/ppra_punjab.ts";
+import { ebrdAdapter } from "./adapters/ebrd.ts";
 
 export const adapters: Record<TenderSourceId, IngestAdapter> = {
   world_bank: worldBankAdapter,
@@ -173,11 +174,11 @@ export const adapters: Record<TenderSourceId, IngestAdapter> = {
     "International Finance Corporation",
     "Procurement page returned empty payload on direct fetch. Needs verified notices feed shape.",
   ),
-  ebrd: disabledAdapter(
-    "ebrd",
-    "European Bank for Reconstruction and Development",
-    "Needs verified procurement-notices feed shape before shipping adapter.",
-  ),
+  // Live as of 2026-06-25 — scrapes ECEPP server-rendered table at
+  // ecepp.ebrd.com. Filters to Open notices with biddable types
+  // (Invitation For Tenders / Prequalification / EOI / RFP), drops
+  // Contract Award / Shortlist rows. Country derived from title prefix.
+  ebrd: ebrdAdapter,
   jica: disabledAdapter(
     "jica",
     "Japan International Cooperation Agency",

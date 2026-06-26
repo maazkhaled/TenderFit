@@ -29,13 +29,15 @@ export const gemIndiaAdapter: IngestAdapter = {
     const sinceMs = new Date(sinceIso).getTime();
     let html: string;
     try {
+      // GeM's analytics pings never go idle so waitUntil=networkidle
+      // always times out at 60s. domcontentloaded + selector wait is
+      // sufficient — the bid cards are server-injected into the
+      // initial HTML payload, not deferred behind XHR.
       html = await fetchRendered(LIST_URL, {
-        waitUntil: "networkidle",
-        // Bid cards mount after the catalog XHR resolves; wait for any
-        // detail-page anchor to show up.
+        waitUntil: "domcontentloaded",
         waitForSelector:
           "a[href*='bidlists'], a[href*='showbidDocument'], a[href*='showradardirectorate']",
-        timeoutMs: 60_000,
+        timeoutMs: 45_000,
       });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);

@@ -1,193 +1,144 @@
 // source: https://canadabuys.canada.ca/en/tender-opportunities
 //
-// CanadaBuys (Federal Canadian procurement, the successor to Buy and
-// Sell) publishes its full active-tender list as a daily-refreshed CSV
-// at the open data path below. Drupal frontend requires JS but the
-// CSV is plain HTTP — no auth, no JS. We always pull the active feed
-// (closed tenders end up in a separate archive CSV).
+// CanadaBuys (Federal Canadian procurement). The Drupal frontend
+// serves a 403 to direct HTTP clients regardless of User-Agent — they
+// require a real browser session. Switched from the open-data CSV
+// (also 403 to non-browser clients) to Playwright-rendered listing
+// scrape after the first deploy proved the CSV approach unreachable.
 //
-// CSV columns observed (header row): reference-number-numero-reference,
-// solicitation-number-numero-sollicitation, title-en, title-fr,
-// publication-date-date-publication, date-closing-date-fermeture,
-// gsin-nibs, gsin-description-en, region-of-opportunity-region-livraison,
-// procurement-entity-entite-approvisionnement, notice-type-type-avis,
-// procurement-method-methode-approvisionnement,
-// notice-url-en, notice-url-fr.
-//
-// If the column header names drift, we fall back to defensive matching
-// on substring tokens ("title", "closing", "notice-url-en") so a small
-// rename doesn't blank the adapter.
+// We parse the listing page after Drupal hydrates the tender cards.
+// Each card is an anchor to /en/tender-opportunities/tender-notice/<ID>.
 
 import { NormalizedTenderSchema, type NormalizedTender } from "@beta/shared";
 import type { IngestAdapter } from "../types.ts";
-import { httpJson as defaultHttpJson } from "../util/http.ts";
+import { decodeEntities, stripTags } from "../util/html-scrape.ts";
+import { fetchRendered } from "../util/playwright-render.ts";
 
-const CSV_URL =
-  "https://canadabuys.canada.ca/sites/default/files/opendata/opendata-tender-notice/tpsgc-pwgsc_ao-t_aviso_de_oportunidad-tender_notice.csv";
-const FALLBACK_CSV_URLS = [
-  // CanadaBuys has migrated CSV paths twice. Try alternatives if the
-  // canonical one 404s — saves an outage when they reshuffle file names.
-  "https://canadabuys.canada.ca/opendata/opendata-tender-notice.csv",
-  "https://canadabuys.canada.ca/sites/default/files/csv/tpsgc-pwgsc_ao-t_tender-notice.csv",
-];
+const LIST_URL = "https://canadabuys.canada.ca/en/tender-opportunities";
 
 export const canadaBuysAdapter: IngestAdapter = {
   source: "canada_buys",
   label: "CanadaBuys (Federal Canada)",
   requiredEnv: [],
-  async fetchPage({ sinceIso, httpJson = defaultHttpJson }) {
+  async fetchPage({ sinceIso }) {
     const sinceMs = new Date(sinceIso).getTime();
-    let csv = "";
-    const urls = [CSV_URL, ...FALLBACK_CSV_URLS];
-    for (const url of urls) {
-      try {
-        csv = await httpJson<string>(url, { asText: true });
-        if (csv && csv.length > 100) break;
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        console.warn(`[canada_buys] CSV fetch failed at ${url}: ${msg}`);
-      }
-    }
-    if (!csv || csv.length < 100) {
-      console.warn(`[canada_buys] all CSV URLs returned empty/short payloads`);
+    let html: string;
+    try {
+      html = await fetchRendered(LIST_URL, {
+        waitUntil: "domcontentloaded",
+        waitForSelector: "a[href*='/tender-notice/']",
+        timeoutMs: 45_000,
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn(`[canada_buys] render failed: ${msg}`);
       return { tenders: [], nextPageToken: null };
     }
 
-    const rows = parseCsv(csv);
-    if (rows.length === 0) return { tenders: [], nextPageToken: null };
-
-    const header = rows[0]!;
-    const idx = (matchers: string[]): number => {
-      for (let i = 0; i < header.length; i++) {
-        const h = (header[i] ?? "").toLowerCase();
-        for (const m of matchers) {
-          if (h.includes(m)) return i;
-        }
-      }
-      return -1;
-    };
-
-    const cTitle = idx(["title-en", "title_en", "english title"]);
-    const cId = idx(["reference-number-numero-reference", "reference_number"]);
-    const cClosing = idx(["closing", "date-fermeture", "date_fermeture"]);
-    const cPublished = idx(["publication-date", "publication_date"]);
-    const cBuyer = idx(["procurement-entity", "procurement_entity", "entite"]);
-    const cRegion = idx(["region-of-opportunity", "region_of"]);
-    const cNoticeType = idx(["notice-type", "notice_type"]);
-    const cUrl = idx(["notice-url-en", "notice_url_en", "url-en"]);
-    const cGsinDesc = idx(["gsin-description-en", "gsin_description_en"]);
-
+    const items = parseCanadaBuys(html);
     const tenders: NormalizedTender[] = [];
-    for (let i = 1; i < rows.length; i++) {
-      const row = rows[i]!;
+    for (const item of items) {
       try {
-        const title = (cTitle >= 0 ? row[cTitle] : "")?.trim();
-        if (!title) continue;
-        const externalId = (cId >= 0 ? row[cId] : `cb-${i}`) || `cb-${i}`;
-        const publishedRaw = cPublished >= 0 ? row[cPublished] : null;
-        const closingRaw = cClosing >= 0 ? row[cClosing] : null;
-        const publishedAt = parseIsoOrDate(publishedRaw);
         if (
           Number.isFinite(sinceMs) &&
-          publishedAt &&
-          publishedAt.getTime() < sinceMs
+          item.publishedAt &&
+          item.publishedAt.getTime() < sinceMs
         ) {
           continue;
         }
-        const url =
-          (cUrl >= 0 ? row[cUrl] : "")?.trim() ||
-          `https://canadabuys.canada.ca/en/tender-opportunities/tender-notice/${encodeURIComponent(externalId)}`;
-
         const tender: NormalizedTender = {
-          externalId: String(externalId),
+          externalId: item.id,
           source: "canada_buys",
-          title,
-          description: [
-            cBuyer >= 0 ? row[cBuyer] : null,
-            cNoticeType >= 0 ? row[cNoticeType] : null,
-            cGsinDesc >= 0 ? row[cGsinDesc] : null,
-            cRegion >= 0 ? row[cRegion] : null,
-          ]
-            .filter((s) => s && String(s).trim())
-            .join("\n\n"),
-          url,
-          buyer:
-            (cBuyer >= 0 ? row[cBuyer] : "")?.trim() || "Government of Canada",
+          title: item.title,
+          description: [item.buyer, item.noticeType].filter(Boolean).join("\n\n"),
+          url: item.detailUrl,
+          buyer: item.buyer || "Government of Canada",
           country: "CA",
-          sector: (cGsinDesc >= 0 ? row[cGsinDesc] : null) || null,
+          sector: item.noticeType || null,
           cpvCodes: [],
           budgetMinUsd: null,
           budgetMaxUsd: null,
           currency: "CAD",
-          publishedAt: publishedAt ?? new Date(),
-          deadlineAt: parseIsoOrDate(closingRaw),
+          publishedAt: item.publishedAt ?? new Date(),
+          deadlineAt: item.closingAt,
           language: "en",
-          raw: row,
+          raw: item,
         };
         tenders.push(NormalizedTenderSchema.parse(tender) as NormalizedTender);
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        console.warn(`[canada_buys] skipped row ${i}: ${msg}`);
+        console.warn(`[canada_buys] skipped item: ${msg}`);
       }
     }
     return { tenders, nextPageToken: null };
   },
 };
 
-/**
- * Tiny CSV parser — RFC 4180-ish. Handles quoted fields, doubled
- * quotes for escapes, CRLF or LF line endings. Doesn't allocate per
- * char so it stays cheap on multi-megabyte feeds.
- */
-function parseCsv(text: string): string[][] {
-  const rows: string[][] = [];
-  let row: string[] = [];
-  let field = "";
-  let inQuotes = false;
-  for (let i = 0; i < text.length; i++) {
-    const ch = text[i]!;
-    if (inQuotes) {
-      if (ch === '"') {
-        if (text[i + 1] === '"') {
-          field += '"';
-          i++;
-        } else {
-          inQuotes = false;
-        }
-      } else {
-        field += ch;
-      }
-    } else {
-      if (ch === '"') {
-        inQuotes = true;
-      } else if (ch === ",") {
-        row.push(field);
-        field = "";
-      } else if (ch === "\n" || ch === "\r") {
-        if (field.length > 0 || row.length > 0) {
-          row.push(field);
-          rows.push(row);
-          row = [];
-          field = "";
-        }
-        // Skip \n after \r so CRLF doesn't insert an empty row.
-        if (ch === "\r" && text[i + 1] === "\n") i++;
-      } else {
-        field += ch;
-      }
-    }
-  }
-  if (field.length > 0 || row.length > 0) {
-    row.push(field);
-    rows.push(row);
-  }
-  return rows;
+interface CbItem {
+  id: string;
+  detailUrl: string;
+  title: string;
+  buyer: string;
+  noticeType: string;
+  publishedAt: Date | null;
+  closingAt: Date | null;
 }
 
-function parseIsoOrDate(raw: string | null | undefined): Date | null {
+function parseCanadaBuys(html: string): CbItem[] {
+  const out: CbItem[] = [];
+  const anchorRe =
+    /<a\b[^>]*href="([^"]*\/tender-notice\/([^"\/?#]+)[^"]*)"[^>]*>([\s\S]*?)<\/a>/gi;
+  const seen = new Set<string>();
+  let m: RegExpExecArray | null;
+  while ((m = anchorRe.exec(html)) !== null) {
+    const hrefRaw = m[1]!;
+    const id = m[2]!;
+    const titleHtml = m[3]!;
+    const title = decodeEntities(stripTags(titleHtml).trim());
+    if (!title || title.length < 5) continue;
+    if (seen.has(id)) continue;
+    seen.add(id);
+
+    const detailUrl = hrefRaw.startsWith("http")
+      ? hrefRaw
+      : `https://canadabuys.canada.ca${hrefRaw.startsWith("/") ? "" : "/"}${hrefRaw}`;
+
+    const start = m.index + m[0]!.length;
+    const window = html.slice(start, start + 2000);
+    const buyer =
+      pickField(window, [
+        /(?:Buyer|Procurement entity|Entity)[^<]*<[^>]*>\s*([^<]+)/i,
+      ]) ?? "";
+    const noticeType =
+      pickField(window, [/Notice Type[^<]*<[^>]*>\s*([^<]+)/i]) ?? "";
+    const publishedAt = parseCbDate(
+      pickField(window, [
+        /(?:Publication|Published) Date[^<]*<[^>]*>\s*([^<]+)/i,
+      ]),
+    );
+    const closingAt = parseCbDate(
+      pickField(window, [/Closing(?: Date)?[^<]*<[^>]*>\s*([^<]+)/i]),
+    );
+
+    out.push({ id, detailUrl, title, buyer, noticeType, publishedAt, closingAt });
+  }
+  return out;
+}
+
+function pickField(text: string, patterns: RegExp[]): string | null {
+  for (const re of patterns) {
+    const m = re.exec(text);
+    if (m && m[1]) {
+      const cleaned = decodeEntities(stripTags(m[1]).trim());
+      if (cleaned) return cleaned;
+    }
+  }
+  return null;
+}
+
+function parseCbDate(raw: string | null): Date | null {
   if (!raw) return null;
-  const s = String(raw).trim();
-  if (!s) return null;
-  const d = new Date(s);
+  const d = new Date(raw);
   return Number.isNaN(d.getTime()) ? null : d;
 }
+

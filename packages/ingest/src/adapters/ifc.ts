@@ -12,7 +12,8 @@ import type { IngestAdapter } from "../types.ts";
 import { decodeEntities, stripTags } from "../util/html-scrape.ts";
 import { fetchRendered } from "../util/playwright-render.ts";
 
-const LIST_URL = "https://disclosures.ifc.org/projects-list";
+const LIST_URL =
+  "https://disclosures.ifc.org/search?Type_Description=Investment&sortBy=Disclosed_Date&sortOrder=desc";
 
 export const ifcAdapter: IngestAdapter = {
   source: "ifc",
@@ -23,8 +24,13 @@ export const ifcAdapter: IngestAdapter = {
     let html: string;
     try {
       html = await fetchRendered(LIST_URL, {
-        waitUntil: "networkidle",
-        waitForSelector: "a[href*='/project-detail/']",
+        // Don't wait for networkidle — IFC's disclosure portal has
+        // long-poll analytics that never resolve. domcontentloaded +
+        // selector wait is plenty.
+        waitUntil: "domcontentloaded",
+        // IFC project detail anchors include either /project-detail/<id>
+        // or just an external project number. Accept both patterns.
+        waitForSelector: "a[href*='project-detail'], a[href*='Project_Number']",
         timeoutMs: 45_000,
       });
     } catch (err) {

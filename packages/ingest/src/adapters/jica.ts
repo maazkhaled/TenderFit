@@ -11,7 +11,16 @@ import type { IngestAdapter } from "../types.ts";
 import { decodeEntities, stripTags } from "../util/html-scrape.ts";
 import { fetchRendered } from "../util/playwright-render.ts";
 
-const LIST_URL = "https://www.jica.go.jp/english/announce/info/index.html";
+// JICA reorganised their English site in 2024 — /announce/info no
+// longer exists. Procurement-adjacent notices live under
+// /information/notice/<FY>/ now. We rotate through the current and
+// previous FY so a 1-Apr FY rollover doesn't blank out the adapter
+// for a day. (Japan FY runs Apr–Mar.)
+const LIST_URLS = [
+  `https://www.jica.go.jp/english/information/notice/${new Date().getUTCFullYear()}/index.html`,
+  `https://www.jica.go.jp/english/information/notice/${new Date().getUTCFullYear() - 1}/index.html`,
+  "https://www.jica.go.jp/english/information/notice/index.html",
+];
 
 export const jicaAdapter: IngestAdapter = {
   source: "jica",
@@ -19,15 +28,21 @@ export const jicaAdapter: IngestAdapter = {
   requiredEnv: [],
   async fetchPage({ sinceIso }) {
     const sinceMs = new Date(sinceIso).getTime();
-    let html: string;
-    try {
-      html = await fetchRendered(LIST_URL, {
-        waitUntil: "domcontentloaded",
-        timeoutMs: 30_000,
-      });
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      console.warn(`[jica] render failed: ${msg}`);
+    let html = "";
+    for (const url of LIST_URLS) {
+      try {
+        html = await fetchRendered(url, {
+          waitUntil: "domcontentloaded",
+          timeoutMs: 30_000,
+        });
+        if (html && html.length > 1000) break;
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.warn(`[jica] render failed for ${url}: ${msg}`);
+      }
+    }
+    if (!html || html.length < 1000) {
+      console.warn(`[jica] all candidate URLs returned empty payloads`);
       return { tenders: [], nextPageToken: null };
     }
 
@@ -80,8 +95,10 @@ interface JicaItem {
 
 function parseJica(html: string): JicaItem[] {
   const out: JicaItem[] = [];
+  // Notice anchors live under /english/information/notice/<FY>/<file>.html
+  // — the new path structure after JICA's 2024 site reorganisation.
   const anchorRe =
-    /<a\b[^>]*href="([^"]*\/english\/announce\/info\/[^"]+\.html?)"[^>]*>([\s\S]*?)<\/a>/gi;
+    /<a\b[^>]*href="([^"]*\/english\/information\/notice\/\d{4}\/[^"]+\.html?)"[^>]*>([\s\S]*?)<\/a>/gi;
   const seen = new Set<string>();
   let m: RegExpExecArray | null;
   while ((m = anchorRe.exec(html)) !== null) {

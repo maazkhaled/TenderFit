@@ -1,16 +1,16 @@
-// source: https://www.iadb.org/en/projects/procurement-notices
+// source: https://www.iadb.org/en/projects-search
 //
-// Inter-American Development Bank (Latin America focus). Procurement
-// notices page is JS-rendered. Anchors to detail pages look like
-// /en/project/<PROJECT_ID>/notice/<NOTICE_ID> or
-// /en/projects/<PROJECT_ID>.
+// Inter-American Development Bank (Latin America focus). The projects
+// search page is server-rendered — a clean HTML table with one row per
+// project: project number, operation number, country, sector, title,
+// total cost, status, approval date. No JS needed. Switched from
+// /procurement-notices (404) to /projects-search after probe.
 
 import { NormalizedTenderSchema, type NormalizedTender } from "@beta/shared";
 import type { IngestAdapter } from "../types.ts";
-import { decodeEntities, stripTags } from "../util/html-scrape.ts";
-import { fetchRendered } from "../util/playwright-render.ts";
+import { decodeEntities, stripTags, fetchHtml } from "../util/html-scrape.ts";
 
-const LIST_URL = "https://www.iadb.org/en/projects/procurement-notices";
+const LIST_URL = "https://www.iadb.org/en/projects-search";
 
 export const iadbAdapter: IngestAdapter = {
   source: "iadb",
@@ -20,14 +20,10 @@ export const iadbAdapter: IngestAdapter = {
     const sinceMs = new Date(sinceIso).getTime();
     let html: string;
     try {
-      html = await fetchRendered(LIST_URL, {
-        waitUntil: "networkidle",
-        waitForSelector: "a[href*='/project/'], a[href*='/projects/']",
-        timeoutMs: 45_000,
-      });
+      html = await fetchHtml(LIST_URL);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      console.warn(`[iadb] render failed: ${msg}`);
+      console.warn(`[iadb] fetch failed: ${msg}`);
       return { tenders: [], nextPageToken: null };
     }
 
@@ -83,43 +79,83 @@ interface IadbItem {
 
 function parseIadb(html: string): IadbItem[] {
   const out: IadbItem[] = [];
-  // Match project / project-notice anchors but skip the generic nav links.
-  const anchorRe =
-    /<a\b[^>]*href="([^"]*\/(?:project|projects)\/[^"]+)"[^>]*>([\s\S]*?)<\/a>/gi;
+  // IADB renders each project as a <tr> with cells in fixed order:
+  // [Project Number, Operation Number, Country, Sector, Title,
+  //  Total Cost, Status, Approval Date]. Project numbers follow the
+  // pattern <2-letter-country>-<L|T><4-5 digits>, e.g. ME-L1348.
+  const trRe = /<tr\b[^>]*>([\s\S]*?)<\/tr>/gi;
+  let trMatch: RegExpExecArray | null;
   const seen = new Set<string>();
-  let m: RegExpExecArray | null;
-  while ((m = anchorRe.exec(html)) !== null) {
-    const hrefRaw = m[1]!;
-    const titleHtml = m[2]!;
-    const title = decodeEntities(stripTags(titleHtml).trim());
-    if (!title || title.length < 8) continue;
-    if (/^(Projects?|Procurement|See more|Read more)$/i.test(title)) continue;
+  while ((trMatch = trRe.exec(html)) !== null) {
+    const trBody = trMatch[1]!;
+    const cells = splitCells(trBody);
+    if (cells.length < 5) continue;
 
+    const projectNumber = cleanCell(cells[0] ?? "");
+    if (!/^[A-Z]{2}-[A-Z]\d{3,5}$/.test(projectNumber)) continue; // header / non-data rows
+    if (seen.has(projectNumber)) continue;
+    seen.add(projectNumber);
+
+    const country = cleanCell(cells[2] ?? "");
+    const sector = cleanCell(cells[3] ?? "");
+    const titleCell = cells[4] ?? "";
+    const title = cleanCell(titleCell);
+    if (!title) continue;
+
+    // Title cell often contains an <a> with the project detail URL.
+    const linkM = /<a\b[^>]*href="([^"]+)"/i.exec(titleCell);
+    const hrefRaw = linkM?.[1] ?? `/en/project-description-title%2C1303.html?id=${encodeURIComponent(projectNumber)}`;
     const detailUrl = hrefRaw.startsWith("http")
       ? hrefRaw
       : `https://www.iadb.org${hrefRaw.startsWith("/") ? "" : "/"}${hrefRaw}`;
-    const idM = /\/project[s]?\/([A-Z0-9-]+)/i.exec(detailUrl);
-    const id = idM ? idM[1]! : detailUrl;
-    if (seen.has(id)) continue;
-    seen.add(id);
 
-    const start = m.index + m[0]!.length;
-    const window = html.slice(start, start + 2000);
-    const country = pickField(window, [/Country[^<]*<[^>]*>\s*([^<]+)/i]) ?? "";
-    const sector = pickField(window, [/Sector[^<]*<[^>]*>\s*([^<]+)/i]) ?? "";
-    const type = pickField(window, [/(?:Notice|Project)\s+Type[^<]*<[^>]*>\s*([^<]+)/i]) ?? "";
-    const publishedAt = parseIsoOrShort(
-      pickField(window, [
-        /(?:Posted|Published|Date)[^<]*<[^>]*>\s*([^<]+)/i,
-      ]),
-    );
-    const deadlineAt = parseIsoOrShort(
-      pickField(window, [/(?:Deadline|Closing)[^<]*<[^>]*>\s*([^<]+)/i]),
-    );
+    const status = cleanCell(cells[6] ?? "");
+    const dateRaw = cleanCell(cells[7] ?? "");
+    const publishedAt = parseIadbDate(dateRaw);
 
-    out.push({ id, detailUrl, title, country, sector, type, publishedAt, deadlineAt });
+    out.push({
+      id: projectNumber,
+      detailUrl,
+      title,
+      country,
+      sector,
+      type: status,
+      publishedAt,
+      deadlineAt: null, // Project search doesn't expose biddable deadlines
+    });
   }
   return out;
+}
+
+function splitCells(trBody: string): string[] {
+  const parts = trBody.split(/<\/td>/i);
+  const cells: string[] = [];
+  for (const part of parts) {
+    const m = /<td\b[^>]*>([\s\S]*)/i.exec(part);
+    if (m) cells.push(m[1] ?? "");
+  }
+  return cells;
+}
+
+function cleanCell(html: string): string {
+  return decodeEntities(stripTags(html).replace(/\s+/g, " ").trim());
+}
+
+function parseIadbDate(raw: string): Date | null {
+  if (!raw) return null;
+  // Format: "Dec. 16 2025" or "Dec 16 2025"
+  const m = /([A-Za-z]{3})\.?\s+(\d{1,2})\s+(\d{4})/.exec(raw);
+  if (!m) return parseIsoOrShort(raw);
+  const monthName = m[1]!.toLowerCase().slice(0, 3);
+  const day = Number.parseInt(m[2]!, 10);
+  const year = Number.parseInt(m[3]!, 10);
+  const months: Record<string, number> = {
+    jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5,
+    jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11,
+  };
+  const month = months[monthName];
+  if (month === undefined) return null;
+  return new Date(Date.UTC(year, month, day));
 }
 
 function pickField(text: string, patterns: RegExp[]): string | null {

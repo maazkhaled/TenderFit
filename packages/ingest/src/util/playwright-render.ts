@@ -54,7 +54,10 @@ async function getBrowser(): Promise<AnyAsync | null> {
       // want to crash the worker if the install or browser binary is
       // missing. The cron will keep running fetchHtml-based adapters and
       // just skip the rendered ones.
-      // @ts-expect-error optional runtime dep — typecheck happens before pnpm install in CI
+      // Soft import — even with playwright in package.json the install
+      // can fail in restricted environments (no Chromium binary, etc).
+      // Returning null here causes adapters to log "playwright
+      // unavailable" + yield zero tenders rather than crash the worker.
       const mod = (await import("playwright").catch(() => null)) as AnyAsync;
       if (!mod || !mod.chromium) {
         console.warn(`[playwright] module not available, rendered adapters will be skipped`);

@@ -29,8 +29,12 @@ export const gcaUkAdapter: IngestAdapter = {
     let html: string;
     try {
       html = await fetchRendered(LIST_URL, {
-        waitUntil: "networkidle",
-        waitForSelector: "a[href*='/agreements/RM']",
+        waitUntil: "domcontentloaded",
+        // GCA renders each agreement card as <a href="/agreements/<RM-NUMBER>">
+        // — the RM prefix on the inner path is the reliable marker. Wait
+        // for one anchor before extracting; the JS pagination doesn't
+        // affect first-page content.
+        waitForSelector: "a[href*='/agreements/']",
         timeoutMs: 30_000,
       });
     } catch (err) {
@@ -94,8 +98,11 @@ interface GcaItem {
 
 function parseGca(html: string): GcaItem[] {
   const out: GcaItem[] = [];
+  // Agreement URLs look like /agreements/RM6348 or /agreements/RM3764.3
+  // (versioned framework). Match the trailing RM identifier loosely so
+  // small URL-style changes (trailing slash, query string) don't break us.
   const anchorRe =
-    /<a\b[^>]*href="([^"]*\/agreements\/(RM[\w.-]+))"[^>]*>([\s\S]*?)<\/a>/gi;
+    /<a\b[^>]*href="([^"]*\/agreements\/(RM[\w.-]+)(?:\?[^"]*)?)"[^>]*>([\s\S]*?)<\/a>/gi;
   const seen = new Set<string>();
   let m: RegExpExecArray | null;
   while ((m = anchorRe.exec(html)) !== null) {

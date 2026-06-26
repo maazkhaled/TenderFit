@@ -24,12 +24,17 @@ export const gebizSgAdapter: IngestAdapter = {
     const sinceMs = new Date(sinceIso).getTime();
     let html: string;
     try {
+      // GeBIZ is JSF/PrimeFaces; the listing renders after a series of
+      // XHR loads. We wait for any link to a notice/opportunity detail
+      // page rather than a specific filename — JSF's URL scheme has
+      // varied across upgrades (BODetail / OPNotice / opportunity).
+      // domcontentloaded is enough because the search is wrapped in a
+      // PrimeFaces partial-update; networkidle never fires.
       html = await fetchRendered(LIST_URL, {
-        waitUntil: "networkidle",
-        // Wait until at least one opportunity link appears — JSF/PF
-        // does multiple XHRs, network-idle alone isn't enough.
-        waitForSelector: "a[href*='BODetail.xhtml'], a[href*='Detail.xhtml']",
-        timeoutMs: 45_000,
+        waitUntil: "domcontentloaded",
+        waitForSelector:
+          "a[href*='Detail.xhtml'], a[href*='Notice.xhtml'], a[href*='opportunity']",
+        timeoutMs: 60_000,
       });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -90,8 +95,11 @@ function parseGebiz(html: string): GebizItem[] {
   const out: GebizItem[] = [];
   // GeBIZ uses anchors like `BODetail.xhtml?...&itemId=NNNN` or similar
   // PrimeFaces faces links. Accept any detail-page URL pattern.
+  // Loosened to match the broader set of opportunity-detail URL shapes
+  // GeBIZ has shipped over the years: BODetail, OpportunityDetail,
+  // NoticeDetail, generic ?opportunityId=... links.
   const anchorRe =
-    /<a\b[^>]*href="([^"]*(?:BODetail|Detail|opportunity)[^"]*\.xhtml[^"]*)"[^>]*>([\s\S]*?)<\/a>/gi;
+    /<a\b[^>]*href="([^"]*(?:BODetail|OpportunityDetail|NoticeDetail|Detail|opportunity)[^"]*(?:\.xhtml|opportunityId=)[^"]*)"[^>]*>([\s\S]*?)<\/a>/gi;
   const seen = new Set<string>();
   let m: RegExpExecArray | null;
   while ((m = anchorRe.exec(html)) !== null) {

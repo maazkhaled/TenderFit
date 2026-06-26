@@ -29,15 +29,16 @@ export const gemIndiaAdapter: IngestAdapter = {
     const sinceMs = new Date(sinceIso).getTime();
     let html: string;
     try {
-      // GeM's analytics pings never go idle so waitUntil=networkidle
-      // always times out at 60s. domcontentloaded + selector wait is
-      // sufficient — the bid cards are server-injected into the
-      // initial HTML payload, not deferred behind XHR.
+      // GeM's bidplus front-end is unusually slow — page.goto with
+      // domcontentloaded has timed out at both 45s and 60s. Push the
+      // navigation timeout to 90s. Once DOMContentLoaded fires the
+      // bid cards are present in the static HTML so we don't need
+      // to wait further.
       html = await fetchRendered(LIST_URL, {
         waitUntil: "domcontentloaded",
         waitForSelector:
           "a[href*='bidlists'], a[href*='showbidDocument'], a[href*='showradardirectorate']",
-        timeoutMs: 45_000,
+        timeoutMs: 90_000,
       });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);

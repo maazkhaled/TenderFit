@@ -25,16 +25,23 @@ export const gebizSgAdapter: IngestAdapter = {
     let html: string;
     try {
       // GeBIZ is JSF/PrimeFaces; the listing renders after a series of
-      // XHR loads. We wait for any link to a notice/opportunity detail
-      // page rather than a specific filename — JSF's URL scheme has
-      // varied across upgrades (BODetail / OPNotice / opportunity).
-      // domcontentloaded is enough because the search is wrapped in a
-      // PrimeFaces partial-update; networkidle never fires.
+      // XHR loads. Previous attempts to waitForSelector on specific
+      // detail-page anchors timed out — GeBIZ doesn't actually inject
+      // detail anchors at all on the search root, you have to click
+      // "Today's Opportunities" or run a search first. Drop the
+      // selector wait and parse whatever the initial render produces;
+      // even partial data is better than nothing while we iterate.
       html = await fetchRendered(LIST_URL, {
-        waitUntil: "domcontentloaded",
-        waitForSelector:
-          "a[href*='Detail.xhtml'], a[href*='Notice.xhtml'], a[href*='opportunity']",
-        timeoutMs: 60_000,
+        waitUntil: "load",
+        timeoutMs: 45_000,
+        // A small post-load script that clicks "Today's Opportunities"
+        // if present — this is the closest thing to a default listing
+        // GeBIZ exposes without user interaction.
+        postLoadScript: `
+          var link = Array.from(document.querySelectorAll('a, button'))
+            .find(function(el){ return /Today.?s Opportunities/i.test(el.textContent || ''); });
+          if (link && typeof link.click === 'function') link.click();
+        `,
       });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);

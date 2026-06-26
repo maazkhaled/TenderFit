@@ -8,7 +8,8 @@
 
 import { NormalizedTenderSchema, type NormalizedTender } from "@beta/shared";
 import type { IngestAdapter } from "../types.ts";
-import { decodeEntities, stripTags, fetchHtml } from "../util/html-scrape.ts";
+import { decodeEntities, stripTags } from "../util/html-scrape.ts";
+import { fetchRendered } from "../util/playwright-render.ts";
 
 const LIST_URL = "https://www.iadb.org/en/projects-search";
 
@@ -20,7 +21,15 @@ export const iadbAdapter: IngestAdapter = {
     const sinceMs = new Date(sinceIso).getTime();
     let html: string;
     try {
-      html = await fetchHtml(LIST_URL);
+      // IADB rejects direct HTTP from the production VPS region with
+      // 403. Route through Playwright + a homepage warmup so we look
+      // like a real Chrome session.
+      html = await fetchRendered(LIST_URL, {
+        waitUntil: "domcontentloaded",
+        waitForSelector: "tr td, a[href*='/project']",
+        timeoutMs: 45_000,
+        warmupUrl: "https://www.iadb.org/en",
+      });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       console.warn(`[iadb] fetch failed: ${msg}`);

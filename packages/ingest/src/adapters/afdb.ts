@@ -20,15 +20,14 @@ export const afdbAdapter: IngestAdapter = {
     const sinceMs = new Date(sinceIso).getTime();
     let html: string;
     try {
-      // AfDB sits behind a Cloudflare bot challenge. Playwright's real
-      // Chromium session passes it most of the time, but we need to
-      // wait for the challenge JS to resolve before extracting links.
-      // domcontentloaded fires too early (during the CF interstitial);
-      // load + an extra selector wait is the reliable combo.
+      // AfDB sits behind Cloudflare bot management. First request from
+      // a fresh Chromium gets 403'd; warming up on the home page lets
+      // CF set its clearance cookie before we hit the notices page.
       html = await fetchRendered(LIST_URL, {
         waitUntil: "load",
         waitForSelector: "a[href*='/procurement']",
         timeoutMs: 60_000,
+        warmupUrl: "https://www.afdb.org/en",
       });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);

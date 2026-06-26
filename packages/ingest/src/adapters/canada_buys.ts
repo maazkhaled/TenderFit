@@ -27,7 +27,11 @@ export const canadaBuysAdapter: IngestAdapter = {
       html = await fetchRendered(LIST_URL, {
         waitUntil: "domcontentloaded",
         waitForSelector: "a[href*='/tender-notice/']",
-        timeoutMs: 45_000,
+        timeoutMs: 60_000,
+        // CanadaBuys's Drupal returns 403 to cold first requests; the
+        // English homepage sets the session cookie that satisfies their
+        // access control, after which the listing returns 200.
+        warmupUrl: "https://canadabuys.canada.ca/en",
       });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);

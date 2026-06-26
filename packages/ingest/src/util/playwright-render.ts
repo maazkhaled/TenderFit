@@ -107,6 +107,14 @@ export interface FetchRenderedOpts {
    * row/item to appear before scraping.
    */
   waitForSelector?: string;
+  /**
+   * Visibility state for waitForSelector. Default "attached" — we
+   * only care that the element exists in the DOM. Many portal cards
+   * are offscreen / in collapsed sections / behind absolute-positioned
+   * layouts that Playwright's default "visible" check rejects, even
+   * though the HTML is fully there and scrapeable.
+   */
+  waitForSelectorState?: "attached" | "visible";
   /** Extra HTTP headers. Browser-emulating UA is set automatically. */
   headers?: Record<string, string>;
   /**
@@ -115,6 +123,12 @@ export interface FetchRenderedOpts {
    * Must be a string (it's passed to page.evaluate via Function.
    */
   postLoadScript?: string;
+  /**
+   * Warmup URL hit before the real URL — helps bypass bot walls
+   * (Cloudflare turnstile, Drupal access control) that fingerprint
+   * the first request. Cookies + storage from the warmup carry over.
+   */
+  warmupUrl?: string;
 }
 
 /**
@@ -151,15 +165,39 @@ export async function fetchRendered(
   let page: AnyAsync = null;
   try {
     context = await browser.newContext({
+      // Use a realistic, recent Chrome UA without our "TenderFit-Ingest"
+      // suffix. Some bot walls (Drupal access control, Cloudflare) flag
+      // unknown UA tokens as automation. We're still polite — 2s
+      // throttle per host stays in place.
       userAgent:
-        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 TenderFit-Ingest",
-      // Block heavy non-essential resources for speed. We only need DOM.
-      // Cookies/localStorage still work because we're a real Chrome.
+        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
       viewport: { width: 1280, height: 1024 },
       extraHTTPHeaders: {
+        // The full set of headers a real Chrome sends on a top-level
+        // navigation. Matters for Drupal CSP / CF Bot Management.
         "Accept-Language": "en-US,en;q=0.9",
+        "Accept":
+          "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+        "Accept-Encoding": "gzip, deflate, br",
+        "Sec-Ch-Ua":
+          '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
+        "Sec-Ch-Ua-Mobile": "?0",
+        "Sec-Ch-Ua-Platform": '"Linux"',
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": "none",
+        "Sec-Fetch-User": "?1",
+        "Upgrade-Insecure-Requests": "1",
         ...(opts.headers ?? {}),
       },
+    });
+
+    // Hide the `navigator.webdriver` flag — it's the single most-
+    // checked signal by anti-bot tools. Real Chrome sets it false;
+    // headless Chromium sets it true by default. Override before any
+    // page script runs.
+    await context.addInitScript(() => {
+      Object.defineProperty(navigator, "webdriver", { get: () => false });
     });
     // Drop images, fonts, media — saves bandwidth + ~30% load time. Keep
     // stylesheets because some portals render layout-conditional content
@@ -170,6 +208,23 @@ export async function fetchRendered(
       return route.continue();
     });
     page = await context.newPage();
+
+    // Optional warmup — visit a related URL first so cookies / CF
+    // tokens get set before we hit the actual listing. Helps with
+    // Drupal access control and lightweight Cloudflare challenges
+    // that fingerprint the cold first request.
+    if (opts.warmupUrl) {
+      try {
+        await page.goto(opts.warmupUrl, {
+          waitUntil: "domcontentloaded",
+          timeout: Math.min(timeoutMs, 15_000),
+        });
+        await sleep(800);
+      } catch {
+        /* warmup is best-effort; ignore failures */
+      }
+    }
+
     const response = await page.goto(url, {
       waitUntil,
       timeout: timeoutMs,
@@ -180,7 +235,10 @@ export async function fetchRendered(
       );
     }
     if (opts.waitForSelector) {
-      await page.waitForSelector(opts.waitForSelector, { timeout: timeoutMs });
+      await page.waitForSelector(opts.waitForSelector, {
+        timeout: timeoutMs,
+        state: opts.waitForSelectorState ?? "attached",
+      });
     }
     if (opts.postLoadScript) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any

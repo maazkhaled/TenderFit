@@ -1,28 +1,28 @@
 import Link from "next/link";
-import { ArrowRight, Brain, GitCompareArrows, Globe, MailCheck, Sparkles } from "lucide-react";
+import { Brain, GitCompareArrows, Globe, MailCheck } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { BrandMark } from "@/components/ui/BrandMark";
 
 const FEATURES = [
   {
     icon: Brain,
-    title: "AI Fit Scoring",
-    body: "Every tender is scored 0–100 against your capability profile with a 3-bullet rationale grounded in the source text.",
+    title: "Bid Fit Score",
+    body: "See a clear 0–100 score for each opportunity, with plain-language reasons tied to the tender text so you know why it is worth a look.",
   },
   {
     icon: GitCompareArrows,
-    title: "Capability Gap Analysis",
-    body: "We surface the certifications, tech, and scale you don't yet have — colour-coded by severity, before you waste a bid cycle.",
+    title: "Readiness Gap Check",
+    body: "Spot missing certifications, required technologies, delivery scale, and other bid blockers before your team spends proposal time.",
   },
   {
     icon: Globe,
-    title: "International Collaboration Mode",
-    body: "Opt in to ignore geography entirely. Surface tenders worldwide as candidates for JVs, partnerships, and cross-border bids — no local-market bias.",
+    title: "Partner-Ready Opportunities",
+    body: "Find work beyond your usual markets when it fits your strengths, and see where a local partner, JV, or specialist subcontractor could help.",
   },
   {
     icon: MailCheck,
-    title: "Scheduled Smart Digests",
-    body: "Never always-on. You pick the cadence, the cut-off score, the timezone, and the recipient list. Inbox respect, not interruption.",
+    title: "Tender Shortlist Digest",
+    body: "Get a clean email shortlist on the schedule you choose, filtered by minimum fit score and sent to the right people in your team.",
   },
 ];
 
@@ -37,10 +37,7 @@ export default function LandingPage() {
           </div>
           <div className="flex items-center gap-2">
             <Link href="/login">
-              <Button variant="ghost" size="sm">Sign in</Button>
-            </Link>
-            <Link href="/login">
-              <Button size="sm">Try the demo</Button>
+              <Button size="sm">Try TenderFit</Button>
             </Link>
           </div>
         </div>
@@ -52,23 +49,12 @@ export default function LandingPage() {
           className="absolute inset-0 -z-10 bg-[radial-gradient(ellipse_at_top,_rgba(99,102,241,0.18),_transparent_55%),_radial-gradient(ellipse_at_bottom_right,_rgba(236,72,153,0.10),_transparent_50%)]"
         />
         <div className="mx-auto max-w-4xl px-6 pt-40 pb-32 text-center">
-          <span className="inline-flex items-center gap-2 rounded-full border border-indigo-200/60 bg-white/60 px-3 py-1 text-xs font-medium text-indigo-700 backdrop-blur">
-            <Sparkles className="h-3 w-3" />
-            The matcher is the product
-          </span>
-          <h1 className="mt-6 text-balance text-5xl font-semibold tracking-tight text-ink sm:text-6xl">
+          <h1 className="text-balance text-5xl font-semibold tracking-tight text-ink sm:text-6xl">
             Tender intelligence for IT companies that actually bid to win.
           </h1>
           <p className="mx-auto mt-6 max-w-2xl text-balance text-lg leading-relaxed text-zinc-600">
-            We ingest opportunities from official sources only — SAM.gov, TED, UNGM, World Bank, PPRA — and use Claude to score fit, expose your gaps, and draft the capability statement before you open a bid doc.
+            TenderFit monitors official government and multilateral procurement portals for you, then turns the feed into a practical shortlist with fit reasons, readiness gaps, win signals, and a draft capability statement before your team opens the bid package.
           </p>
-          <div className="mt-10 flex items-center justify-center gap-3">
-            <Link href="/login">
-              <Button size="lg">
-                Sign in <ArrowRight className="h-4 w-4" />
-              </Button>
-            </Link>
-          </div>
         </div>
       </section>
 
@@ -97,9 +83,6 @@ export default function LandingPage() {
           <p className="max-w-md text-sm text-zinc-600">
             Describe your company once. Get tender matches with rationale, gaps, win-probability, and a draft capability statement.
           </p>
-          <Link href="/login">
-            <Button size="lg">Sign in</Button>
-          </Link>
         </div>
       </section>
 

@@ -14,7 +14,11 @@ import type { IngestAdapter } from "../types.ts";
 import { decodeEntities, stripTags } from "../util/html-scrape.ts";
 import { fetchRendered, diagnoseEmptyParse } from "../util/playwright-render.ts";
 
-const LIST_URL = "https://www.gebiz.gov.sg/ptn/opportunity/BOListing.xhtml";
+// Round 3 diagnostic showed BOListing loads only the site shell — the
+// opportunity XHR is behind user interaction. /ptn/ppplisting is the
+// public "Indicative Government Procurement Opportunities" listing
+// that IS server-rendered with actual entries.
+const LIST_URL = "https://www.gebiz.gov.sg/ptn/ppplisting/index.xhtml";
 
 export const gebizSgAdapter: IngestAdapter = {
   source: "gebiz_sg",
@@ -34,16 +38,10 @@ export const gebizSgAdapter: IngestAdapter = {
       html = await fetchRendered(LIST_URL, {
         waitUntil: "load",
         timeoutMs: 45_000,
-        // Click "Today's Opportunities" to load the default listing
-        // (GeBIZ requires interaction to expose it).
-        postLoadScript: `
-          var link = Array.from(document.querySelectorAll('a, button'))
-            .find(function(el){ return /Today.?s Opportunities/i.test(el.textContent || ''); });
-          if (link && typeof link.click === 'function') link.click();
-        `,
-        // JSF/PrimeFaces partial-update after the click can take a
-        // few seconds; give it time before we scrape.
-        postLoadDelayMs: 5_000,
+        // /ptn/ppplisting renders the listing server-side after the JSF
+        // partial-update finishes hydrating; a short wait after `load`
+        // is enough.
+        postLoadDelayMs: 3_000,
       });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);

@@ -10,7 +10,12 @@ import type { IngestAdapter } from "../types.ts";
 import { decodeEntities, stripTags } from "../util/html-scrape.ts";
 import { fetchRendered, diagnoseEmptyParse } from "../util/playwright-render.ts";
 
-const LIST_URL = "https://www.afdb.org/en/projects-and-operations/procurement/notices";
+// Round 3 diagnostic: /en/projects-and-operations/procurement/notices
+// serves only the site nav shell. The bank's actual procurement notice
+// documents live under /en/documents filtered by document_type. This
+// URL renders real notice-titled anchors.
+const LIST_URL =
+  "https://www.afdb.org/en/documents?document_type[]=Specific+Procurement+Notice+%28SPN%29&document_type[]=General+Procurement+Notice+%28GPN%29&document_type[]=Request+for+Expressions+of+Interest+%28EOI%29";
 
 export const afdbAdapter: IngestAdapter = {
   source: "afdb",
@@ -20,14 +25,16 @@ export const afdbAdapter: IngestAdapter = {
     const sinceMs = new Date(sinceIso).getTime();
     let html: string;
     try {
-      // AfDB sits behind Cloudflare bot management. First request from
-      // a fresh Chromium gets 403'd; warming up on the home page lets
-      // CF set its clearance cookie before we hit the notices page.
+      // AfDB sits behind Cloudflare bot management. Warmup on the home
+      // page seeds the CF clearance cookie before the actual fetch.
+      // Wait for any /documents anchor — the results are direct links
+      // to procurement PDFs.
       html = await fetchRendered(LIST_URL, {
         waitUntil: "load",
-        waitForSelector: "a[href*='/procurement']",
+        waitForSelector: "a[href*='/documents/']",
         timeoutMs: 60_000,
         warmupUrl: "https://www.afdb.org/en",
+        postLoadDelayMs: 2_000,
       });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -92,8 +99,11 @@ function parseAfdb(html: string): AfdbItem[] {
   // AfDB notice paths contain "procurement" and one of the notice
   // verticals: "specific-procurement-notices", "general-procurement-notices",
   // "expressions-of-interest".
+  // Match anchors to /en/documents/... (real procurement PDF pages).
+  // Exclude anchors that link to document *listings* (which end at
+  // /documents/ with no further segment).
   const anchorRe =
-    /<a\b[^>]*href="([^"]*\/procurement\/[^"]*\/[^"]+)"[^>]*>([\s\S]*?)<\/a>/gi;
+    /<a\b[^>]*href="([^"]*\/en\/documents\/[^"?#]+)"[^>]*>([\s\S]*?)<\/a>/gi;
   const seen = new Set<string>();
   let m: RegExpExecArray | null;
   while ((m = anchorRe.exec(html)) !== null) {

@@ -13,6 +13,7 @@ import { WinProbBadge } from "@/components/domain/WinProbBadge";
 import { CountryFlag } from "@/components/domain/CountryFlag";
 import { GapList } from "@/components/domain/GapList";
 import { MatchActions } from "./MatchActions";
+import { CollaborationSuggestionCard } from "./CollaborationSuggestionCard";
 
 export const dynamic = "force-dynamic";
 
@@ -220,55 +221,15 @@ export default async function MatchDetailPage({
             </CardBody>
           </Card>
 
-          {match.collaborationSuggestion ? (
-            /* Only rendered for tenders the scorer judged too weak to
-               bid solo. Amber to match the digest email's callout
-               style — same visual cue in both surfaces. */
-            <Card className="border-amber-200 bg-amber-50">
-              <CardHeader>
-                <CardTitle className="text-amber-900">
-                  Consider partnering
-                </CardTitle>
-              </CardHeader>
-              <CardBody className="space-y-3">
-                <div className="text-xs font-medium uppercase tracking-wide text-amber-800">
-                  Could raise win prob to{" "}
-                  <WinProbBadge
-                    value={
-                      match.collaborationSuggestion
-                        .newWinProbabilityIfPartnered
-                    }
-                  />
-                </div>
-                <p className="text-sm leading-relaxed text-ink-soft">
-                  {match.collaborationSuggestion.partnerProfile}
-                </p>
-                {match.collaborationSuggestion.mustHaveCapabilities.length >
-                0 ? (
-                  <div>
-                    <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-amber-800">
-                      Must-have capabilities
-                    </div>
-                    <ul className="ml-4 list-disc space-y-1 text-sm text-ink-soft">
-                      {match.collaborationSuggestion.mustHaveCapabilities.map(
-                        (cap) => (
-                          <li key={cap}>{cap}</li>
-                        ),
-                      )}
-                    </ul>
-                  </div>
-                ) : null}
-                {match.collaborationSuggestion.geographyHint ? (
-                  <div className="text-sm text-ink-soft">
-                    <span className="font-semibold text-amber-800">
-                      Where:
-                    </span>{" "}
-                    {match.collaborationSuggestion.geographyHint}
-                  </div>
-                ) : null}
-              </CardBody>
-            </Card>
-          ) : null}
+          {/* Renders either the persisted suggestion, a "Suggest JV
+              partner" button (for legacy matches scored before the JV
+              feature landed AND fitScore < 70), or nothing (fitScore
+              >= 70, tender is a solid solo bid). */}
+          <CollaborationSuggestionCard
+            matchId={match.id}
+            fitScore={match.fitScore}
+            initial={match.collaborationSuggestion ?? null}
+          />
         </aside>
       </div>
 

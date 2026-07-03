@@ -29,15 +29,16 @@ export const gemIndiaAdapter: IngestAdapter = {
     const sinceMs = new Date(sinceIso).getTime();
     let html: string;
     try {
-      // GeM's bidplus front-end is unusually slow — 90s timeout on
-      // page.goto still fails in production. Use "load" (fires after
-      // the top-level document + subresources finish) with a shorter
-      // budget, then a fixed post-load delay to let the React app
-      // hydrate its bid cards before we scrape.
+      // GeM's bidplus front-end has failed at every waitUntil setting
+      // + 90s timeout combination we've tried. Switch to
+      // `domcontentloaded` (fires when parser reaches </html>, no
+      // dep on subresources) with a very generous 120s cap. Follows
+      // with a long post-load delay so the React app has time to
+      // hydrate bid cards before we scrape.
       html = await fetchRendered(LIST_URL, {
-        waitUntil: "load",
-        timeoutMs: 60_000,
-        postLoadDelayMs: 6_000,
+        waitUntil: "domcontentloaded",
+        timeoutMs: 120_000,
+        postLoadDelayMs: 8_000,
       });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);

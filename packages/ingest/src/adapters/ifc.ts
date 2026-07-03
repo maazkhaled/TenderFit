@@ -12,8 +12,10 @@ import type { IngestAdapter } from "../types.ts";
 import { decodeEntities, stripTags } from "../util/html-scrape.ts";
 import { fetchRendered, diagnoseEmptyParse } from "../util/playwright-render.ts";
 
-const LIST_URL =
-  "https://disclosures.ifc.org/search?Type_Description=Investment&sortBy=Disclosed_Date&sortOrder=desc";
+// /project-disclosures is the primary IFC portal listing. The /search
+// route requires filter interaction to populate results. project-
+// disclosures renders card links directly.
+const LIST_URL = "https://disclosures.ifc.org/project-disclosures";
 
 export const ifcAdapter: IngestAdapter = {
   source: "ifc",

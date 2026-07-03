@@ -70,6 +70,10 @@ export async function buildDigestForTenant(
       rationale: Array.isArray(m.rationale) ? m.rationale.slice(0, 3) : [],
       winProbability: m.winProbability,
       humanResourcesEstimate: m.humanResourcesEstimate as any,
+      // Only populated for tenders where the LLM judged the tenant's
+      // solo fit weak enough to warrant partnering — see the scorer's
+      // COLLAB_SUGGESTION_MAX_SCORE gate.
+      collaborationSuggestion: m.collaborationSuggestion ?? null,
     })),
   };
 }

@@ -12,7 +12,7 @@
 import { NormalizedTenderSchema, type NormalizedTender } from "@beta/shared";
 import type { IngestAdapter } from "../types.ts";
 import { decodeEntities, stripTags } from "../util/html-scrape.ts";
-import { fetchRendered } from "../util/playwright-render.ts";
+import { fetchRendered, diagnoseEmptyParse } from "../util/playwright-render.ts";
 
 const LIST_URL = "https://www.gebiz.gov.sg/ptn/opportunity/BOListing.xhtml";
 
@@ -34,14 +34,16 @@ export const gebizSgAdapter: IngestAdapter = {
       html = await fetchRendered(LIST_URL, {
         waitUntil: "load",
         timeoutMs: 45_000,
-        // A small post-load script that clicks "Today's Opportunities"
-        // if present — this is the closest thing to a default listing
-        // GeBIZ exposes without user interaction.
+        // Click "Today's Opportunities" to load the default listing
+        // (GeBIZ requires interaction to expose it).
         postLoadScript: `
           var link = Array.from(document.querySelectorAll('a, button'))
             .find(function(el){ return /Today.?s Opportunities/i.test(el.textContent || ''); });
           if (link && typeof link.click === 'function') link.click();
         `,
+        // JSF/PrimeFaces partial-update after the click can take a
+        // few seconds; give it time before we scrape.
+        postLoadDelayMs: 5_000,
       });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -50,6 +52,7 @@ export const gebizSgAdapter: IngestAdapter = {
     }
 
     const items = parseGebiz(html);
+    if (items.length === 0) diagnoseEmptyParse("gebiz_sg", html);
     const tenders: NormalizedTender[] = [];
     for (const item of items) {
       try {

@@ -17,6 +17,22 @@ import {
 
 const MAX_TOKENS = 3000;
 
+// Below this score the LLM is asked to generate a collaboration
+// suggestion — the description of an ideal JV partner that would
+// materially raise win probability. Above it, going solo is the
+// expected path and the field stays empty. Override via env.
+const COLLAB_SUGGESTION_MAX_SCORE = Number.parseInt(
+  process.env.COLLAB_SUGGESTION_MAX_SCORE ?? "70",
+  10,
+);
+
+const CollaborationSuggestionSchema = z.object({
+  partnerProfile: z.string().min(20).max(600),
+  mustHaveCapabilities: z.array(z.string().min(1)).min(1).max(6),
+  geographyHint: z.string().nullable(),
+  newWinProbabilityIfPartnered: z.enum(["low", "medium", "high"]),
+});
+
 const ToolInputSchema = z.object({
   rationale: z.array(z.string().min(1)).length(MATCH_RATIONALE_BULLET_COUNT),
   gaps: z
@@ -46,6 +62,12 @@ const ToolInputSchema = z.object({
     notes: z.string().min(1),
   }),
   fitScore: z.number().int().min(0).max(100),
+  // Optional in the schema — the LLM only returns this when it judges
+  // the score sits below the "go solo" threshold. Post-processing
+  // enforces the same rule: if fitScore >= COLLAB_SUGGESTION_MAX_SCORE
+  // we drop whatever was returned so we never store a suggestion for
+  // a high-fit tender.
+  collaborationSuggestion: CollaborationSuggestionSchema.optional(),
 });
 
 type ToolInput = z.infer<typeof ToolInputSchema>;
@@ -64,6 +86,16 @@ Hard rules:
 - humanResourcesEstimate.minimumPeople must equal the sum of role counts unless minimumPeople is 0 because the tender has no meaningful service/delivery component.
 - Set humanResourcesEstimate.basis to "explicit" only when the tender states staffing counts/roles; "mixed" when some are explicit and others inferred; "inferred" when staffing is estimated from scope.
 - fitScore is an integer 0-100. The cosine similarity (0..1) is one input. You may override it up or down if the rationale and gaps demand a different score. A tender with blockers should rarely score above 40 even if similarity is high.
+
+Collaboration suggestion rule (only when fitScore < 70):
+- If you assign a fitScore below 70, ALSO populate collaborationSuggestion — describe the ideal JV/partner company that would plug the identified capability gaps and materially improve the win probability.
+- partnerProfile: 2-4 sentences describing the ideal partner's industry, size, and posture. Concrete, not aspirational. Example: "A regional systems integrator with an active ISO/IEC 27001-certified data centre in the GCC, delivering managed cybersecurity services to public-sector clients. Should have 100-300 staff and demonstrable references with the tender-issuing ministry's peer agencies."
+- mustHaveCapabilities: 1-6 specific capabilities the partner MUST bring (certifications, existing client relationships, local presence, tech stack, staffing profile). Each entry is a short noun phrase — no full sentences.
+- geographyHint: two-letter ISO country code (e.g. "SA") or a short region label (e.g. "GCC", "East Africa") when the tender clearly requires local presence; null otherwise.
+- newWinProbabilityIfPartnered: your estimate of the win probability assuming the ideal partner is on board. Should almost always be at least one tier above the standalone winProbability.
+- If fitScore >= 70, DO NOT populate collaborationSuggestion — leave it out entirely. A high-fit tender should be bid solo.
+- Never suggest a specific named company; describe the partner archetype only.
+
 - Return ONLY the structured object. No prose outside the structured fields.`;
 
 const SCHEMA: JsonSchema = {
@@ -166,6 +198,46 @@ const SCHEMA: JsonSchema = {
         "Overall fit score 0-100. Integer. Be honest — blockers should pull this well below the cosine hint.",
       minimum: 0,
       maximum: 100,
+    },
+    collaborationSuggestion: {
+      type: "object",
+      description:
+        "Only populate when fitScore < 70. Describes the ideal JV/collaboration partner that would materially raise win probability. Leave out entirely for high-fit tenders.",
+      properties: {
+        partnerProfile: {
+          type: "string",
+          minLength: 20,
+          maxLength: 600,
+          description:
+            "2-4 sentence description of the ideal partner (industry, size, posture, relevant references). Concrete, not aspirational. No specific company names.",
+        },
+        mustHaveCapabilities: {
+          type: "array",
+          minItems: 1,
+          maxItems: 6,
+          items: { type: "string", minLength: 1 },
+          description:
+            "1-6 concrete capabilities the partner MUST bring — certifications, client references, local presence, tech stack, staffing profile. Short noun phrases.",
+        },
+        geographyHint: {
+          type: ["string", "null"],
+          description:
+            "Two-letter ISO country code or short region label when the tender clearly requires local presence; null otherwise.",
+        },
+        newWinProbabilityIfPartnered: {
+          type: "string",
+          enum: ["low", "medium", "high"],
+          description:
+            "Win probability estimate assuming the ideal partner is on board. Should almost always be at least one tier above standalone winProbability.",
+        },
+      },
+      required: [
+        "partnerProfile",
+        "mustHaveCapabilities",
+        "geographyHint",
+        "newWinProbabilityIfPartnered",
+      ],
+      additionalProperties: false,
     },
   },
   required: [
@@ -295,6 +367,13 @@ function toMatchResult(
     humanResourcesEstimate: normalizeHumanResourcesEstimate(
       data.humanResourcesEstimate,
     ),
+    // Enforce the "only for low fit" rule server-side too — an LLM
+    // that ignores the prompt and returns a suggestion for a high-fit
+    // tender should still not have it persisted.
+    collaborationSuggestion:
+      data.fitScore < COLLAB_SUGGESTION_MAX_SCORE
+        ? data.collaborationSuggestion
+        : undefined,
     modelVersion: modelVersion(),
   };
 }

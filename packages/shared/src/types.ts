@@ -111,6 +111,19 @@ export interface HumanResourcesEstimate {
   notes: string;
 }
 
+/**
+ * Suggested joint-venture / collaboration partner for tenders where
+ * the tenant's solo fit isn't strong enough to win. Populated only
+ * when fitScore falls below the collaboration-suggestion threshold
+ * (see the matcher's promptCollaborationSuggestionIfLowFit gate).
+ */
+export interface CollaborationSuggestion {
+  partnerProfile: string;
+  mustHaveCapabilities: string[];
+  geographyHint: string | null;
+  newWinProbabilityIfPartnered: WinProbability;
+}
+
 export interface MatchResult {
   tenderId: string;
   tenantId: string;
@@ -121,6 +134,7 @@ export interface MatchResult {
   winProbabilityReason: string;
   humanResourcesEstimate: HumanResourcesEstimate;
   capabilityStatement?: string;
+  collaborationSuggestion?: CollaborationSuggestion;
   modelVersion: string;
 }
 
@@ -162,5 +176,11 @@ export interface DigestPayload {
     rationale: string[];
     winProbability: WinProbability;
     humanResourcesEstimate: HumanResourcesEstimate;
+    /**
+     * Null unless the LLM judged this tender needs a JV/partner to be
+     * winnable. Renderer should show a distinct "Consider partnering
+     * with…" callout when non-null.
+     */
+    collaborationSuggestion: CollaborationSuggestion | null;
   }>;
 }

@@ -12,7 +12,7 @@
 import { NormalizedTenderSchema, type NormalizedTender } from "@beta/shared";
 import type { IngestAdapter } from "../types.ts";
 import { decodeEntities, stripTags } from "../util/html-scrape.ts";
-import { fetchRendered } from "../util/playwright-render.ts";
+import { fetchRendered, diagnoseEmptyParse } from "../util/playwright-render.ts";
 
 const LIST_URL = "https://canadabuys.canada.ca/en/tender-opportunities";
 
@@ -40,6 +40,7 @@ export const canadaBuysAdapter: IngestAdapter = {
     }
 
     const items = parseCanadaBuys(html);
+    if (items.length === 0) diagnoseEmptyParse("canada_buys", html);
     const tenders: NormalizedTender[] = [];
     for (const item of items) {
       try {

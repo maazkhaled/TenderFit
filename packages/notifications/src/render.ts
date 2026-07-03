@@ -70,6 +70,33 @@ export function renderDigestHtml(payload: DigestPayload): string {
       const rationale = m.rationale
         .map((r) => `<li style="margin:0 0 4px 0;">${escapeHtml(r)}</li>`)
         .join("");
+
+      // Optional "consider partnering with…" callout. Only rendered
+      // when the scorer decided this tender's solo fit is weak enough
+      // that a JV/collab would materially change the outcome.
+      const collab = m.collaborationSuggestion;
+      const collabBlock = collab
+        ? `
+      <div style="margin:14px 0 0 0;padding:12px 14px;background:#fef3c7;border:1px solid #fcd34d;border-radius:6px;font-family:${FONT_STACK};">
+        <div style="font-size:12px;font-weight:700;color:#92400e;text-transform:uppercase;letter-spacing:0.04em;margin:0 0 6px 0;">
+          Consider partnering — could raise win prob to ${escapeHtml(collab.newWinProbabilityIfPartnered.toUpperCase())}
+        </div>
+        <div style="font-size:13px;color:#1f2937;line-height:1.5;margin:0 0 8px 0;">
+          ${escapeHtml(collab.partnerProfile)}
+        </div>
+        <div style="font-size:12px;color:#4b5563;margin:0 0 4px 0;">
+          <strong>Must have:</strong> ${collab.mustHaveCapabilities.map((c) => escapeHtml(c)).join(", ")}
+        </div>${
+          collab.geographyHint
+            ? `
+        <div style="font-size:12px;color:#4b5563;margin:0;">
+          <strong>Where:</strong> ${escapeHtml(collab.geographyHint)}
+        </div>`
+            : ""
+        }
+      </div>`
+        : "";
+
       return `
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 16px 0;border:1px solid #e5e7eb;border-radius:8px;background:#ffffff;">
   <tr>
@@ -87,6 +114,7 @@ export function renderDigestHtml(payload: DigestPayload): string {
         ${rationale}
       </ul>
       <a href="${escapeHtml(matchUrl)}" style="display:inline-block;padding:8px 14px;background:#111827;color:#ffffff;text-decoration:none;font-size:13px;font-weight:600;border-radius:6px;font-family:${FONT_STACK};">View match</a>
+      ${collabBlock}
     </td>
   </tr>
 </table>`;

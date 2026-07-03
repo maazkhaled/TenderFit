@@ -96,6 +96,29 @@ export const CapabilityGapSchema = z.object({
   severity: GapSeveritySchema,
 });
 
+/**
+ * When a tender scores below the "comfortable win" threshold, we ask
+ * the LLM to describe the ideal JV / collaboration partner that would
+ * plug the capability gaps and materially improve win probability.
+ * This is what an r2v rep would traditionally sketch out on a whiteboard
+ * — "we'd need to team with an ISO-27001-certified DC operator based in
+ * the GCC" — automated.
+ *
+ * partnerProfile: 2-4 sentence narrative of the ideal partner.
+ * mustHaveCapabilities: bulleted, machine-readable list of concrete
+ *   capabilities the partner must bring (used for search/filter later).
+ * geographyHint: two-letter country code or region label if there's a
+ *   clear geographic constraint (e.g. tender requires local presence).
+ * newWinProbabilityIfPartnered: LLM's estimate of the *new* win prob
+ *   with the ideal partner on board.
+ */
+export const CollaborationSuggestionSchema = z.object({
+  partnerProfile: z.string().min(20).max(600),
+  mustHaveCapabilities: z.array(z.string().min(1)).min(1).max(6),
+  geographyHint: z.string().nullable(),
+  newWinProbabilityIfPartnered: WinProbabilitySchema,
+});
+
 export const MatchResultSchema = z.object({
   tenderId: z.string(),
   tenantId: z.string(),
@@ -106,6 +129,13 @@ export const MatchResultSchema = z.object({
   winProbabilityReason: z.string().min(1),
   humanResourcesEstimate: HumanResourcesEstimateSchema,
   capabilityStatement: z.string().optional(),
+  /**
+   * Optional — the LLM is only asked to produce this for tenders scoring
+   * below a threshold (see COLLAB_SUGGESTION_MAX_SCORE in packages/llm).
+   * High-fit tenders don't need a partner suggestion because they're
+   * already in the "just bid it solo" zone.
+   */
+  collaborationSuggestion: CollaborationSuggestionSchema.optional(),
   modelVersion: z.string(),
 });
 

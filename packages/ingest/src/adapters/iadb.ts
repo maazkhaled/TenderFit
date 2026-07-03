@@ -9,7 +9,7 @@
 import { NormalizedTenderSchema, type NormalizedTender } from "@beta/shared";
 import type { IngestAdapter } from "../types.ts";
 import { decodeEntities, stripTags } from "../util/html-scrape.ts";
-import { fetchRendered } from "../util/playwright-render.ts";
+import { fetchRendered, diagnoseEmptyParse } from "../util/playwright-render.ts";
 
 const LIST_URL = "https://www.iadb.org/en/projects-search";
 
@@ -37,6 +37,7 @@ export const iadbAdapter: IngestAdapter = {
     }
 
     const items = parseIadb(html);
+    if (items.length === 0) diagnoseEmptyParse("iadb", html);
     const tenders: NormalizedTender[] = [];
     for (const item of items) {
       try {

@@ -16,7 +16,7 @@
 import { NormalizedTenderSchema, type NormalizedTender } from "@beta/shared";
 import type { IngestAdapter } from "../types.ts";
 import { decodeEntities, stripTags } from "../util/html-scrape.ts";
-import { fetchRendered } from "../util/playwright-render.ts";
+import { fetchRendered, diagnoseEmptyParse } from "../util/playwright-render.ts";
 
 const LIST_URL = "https://www.gca.gov.uk/agreements";
 
@@ -44,6 +44,7 @@ export const gcaUkAdapter: IngestAdapter = {
     }
 
     const items = parseGca(html);
+    if (items.length === 0) diagnoseEmptyParse("gca_uk", html);
     const tenders: NormalizedTender[] = [];
     for (const item of items) {
       try {

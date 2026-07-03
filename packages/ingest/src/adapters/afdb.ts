@@ -8,7 +8,7 @@
 import { NormalizedTenderSchema, type NormalizedTender } from "@beta/shared";
 import type { IngestAdapter } from "../types.ts";
 import { decodeEntities, stripTags } from "../util/html-scrape.ts";
-import { fetchRendered } from "../util/playwright-render.ts";
+import { fetchRendered, diagnoseEmptyParse } from "../util/playwright-render.ts";
 
 const LIST_URL = "https://www.afdb.org/en/projects-and-operations/procurement/notices";
 
@@ -36,6 +36,7 @@ export const afdbAdapter: IngestAdapter = {
     }
 
     const items = parseAfdb(html);
+    if (items.length === 0) diagnoseEmptyParse("afdb", html);
     const tenders: NormalizedTender[] = [];
     for (const item of items) {
       try {

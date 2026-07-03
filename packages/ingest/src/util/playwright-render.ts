@@ -129,6 +129,13 @@ export interface FetchRenderedOpts {
    * the first request. Cookies + storage from the warmup carry over.
    */
   warmupUrl?: string;
+  /**
+   * Extra fixed delay (ms) after page.goto + waitForSelector +
+   * postLoadScript complete, before we scrape the DOM. Useful for
+   * portals that render their listing via a JS timer or via a
+   * secondary XHR that doesn't affect the network-idle signal.
+   */
+  postLoadDelayMs?: number;
 }
 
 /**
@@ -246,6 +253,9 @@ export async function fetchRendered(
       // Tiny settle delay after scrolling or clicking.
       await sleep(500);
     }
+    if (opts.postLoadDelayMs && opts.postLoadDelayMs > 0) {
+      await sleep(opts.postLoadDelayMs);
+    }
     return await page.content();
   } finally {
     try {
@@ -271,4 +281,31 @@ function safeHost(url: string): string | null {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
+}
+
+/**
+ * Diagnostic dump for adapters that yielded zero rows. Prints the
+ * body length + a compact "text signature" (first N anchor href
+ * fragments seen, first M non-whitespace text tokens). Just enough
+ * to tell us whether we got a real page, a bot wall, or a spinner.
+ *
+ * Gated by INGEST_DEBUG_HTML=1 so it's silent in normal ops.
+ */
+export function diagnoseEmptyParse(source: string, html: string): void {
+  if (process.env.INGEST_DEBUG_HTML !== "1") return;
+  const len = html.length;
+  const anchorHrefs = Array.from(
+    html.matchAll(/<a[^>]+href="([^"]{5,200})"/gi),
+    (m) => m[1]!,
+  ).slice(0, 10);
+  const textSample = html
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 300);
+  console.warn(
+    `[${source}] diagnose parse-empty: body=${len}B anchors=${JSON.stringify(anchorHrefs)} text=${JSON.stringify(textSample)}`,
+  );
 }

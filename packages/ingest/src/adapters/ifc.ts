@@ -10,7 +10,7 @@
 import { NormalizedTenderSchema, type NormalizedTender } from "@beta/shared";
 import type { IngestAdapter } from "../types.ts";
 import { decodeEntities, stripTags } from "../util/html-scrape.ts";
-import { fetchRendered } from "../util/playwright-render.ts";
+import { fetchRendered, diagnoseEmptyParse } from "../util/playwright-render.ts";
 
 const LIST_URL =
   "https://disclosures.ifc.org/search?Type_Description=Investment&sortBy=Disclosed_Date&sortOrder=desc";
@@ -40,6 +40,7 @@ export const ifcAdapter: IngestAdapter = {
     }
 
     const items = parseIfc(html);
+    if (items.length === 0) diagnoseEmptyParse("ifc", html);
     const tenders: NormalizedTender[] = [];
     for (const item of items) {
       try {

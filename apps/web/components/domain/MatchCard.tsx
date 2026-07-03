@@ -1,5 +1,9 @@
 import Link from "next/link";
-import type { HumanResourcesEstimate, WinProbability } from "@beta/shared";
+import type {
+  CollaborationSuggestion,
+  HumanResourcesEstimate,
+  WinProbability,
+} from "@beta/shared";
 import { Card, CardBody } from "@/components/ui/Card";
 import { CountryFlag } from "./CountryFlag";
 import { FitScore } from "./FitScore";
@@ -10,6 +14,7 @@ export interface MatchCardData {
   fitScore: number;
   winProbability: WinProbability;
   humanResourcesEstimate?: HumanResourcesEstimate | null;
+  collaborationSuggestion?: CollaborationSuggestion | null;
   tender: {
     title: string;
     buyer: string;
@@ -94,6 +99,18 @@ export function MatchCard({ match }: { match: MatchCardData }) {
               </span>
               {ingestedLabel ? (
                 <span className="text-xs text-zinc-400">{ingestedLabel}</span>
+              ) : null}
+              {match.collaborationSuggestion ? (
+                // Amber pill signals "worth pursuing with a partner" —
+                // consistent with the digest email's amber callout so
+                // returning users don't have to re-learn the cue. Full
+                // partner profile is shown on the match detail page.
+                <span
+                  className="inline-flex items-center rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-800 ring-1 ring-inset ring-amber-200"
+                  title={match.collaborationSuggestion.partnerProfile}
+                >
+                  JV suggested
+                </span>
               ) : null}
             </div>
           </div>

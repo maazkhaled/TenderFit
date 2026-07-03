@@ -199,6 +199,11 @@ model MatchResult {
   winProbabilityReason String
   humanResourcesEstimate Json         @default("{}")
   capabilityStatement  String?        // generated on-demand
+  // Optional JV/partner suggestion for tenders where the tenant's solo
+  // fit is weak. Shape defined by CollaborationSuggestionSchema in
+  // packages/shared. Null when fitScore is high enough that going solo
+  // is the recommended path.
+  collaborationSuggestion Json?
   modelVersion         String
   createdAt            DateTime       @default(now())
 

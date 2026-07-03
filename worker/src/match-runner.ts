@@ -417,6 +417,9 @@ async function matchForTenant(tenant: {
           winProbability: result.winProbability,
           winProbabilityReason: result.winProbabilityReason,
           humanResourcesEstimate: result.humanResourcesEstimate as any,
+          // undefined => Prisma writes SQL NULL, which matches the
+          // "no JV suggestion because fit is already high" contract.
+          collaborationSuggestion: (result.collaborationSuggestion ?? null) as any,
           modelVersion: result.modelVersion,
         },
       });

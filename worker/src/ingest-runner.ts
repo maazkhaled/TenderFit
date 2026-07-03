@@ -42,14 +42,55 @@ function checkRequiredEnv(adapter: IngestAdapter): string[] {
   return adapter.requiredEnv.filter((name) => !process.env[name]);
 }
 
+// Rewind window applied to whatever "since" value we compute. Ensures
+// we always ask upstream about at least the last N days even when
+// nothing has been ingested for that long — catches tenders that
+// portals list retroactively (e.g. World Bank posting a bid notice 2
+// weeks after its stated publication date, r2v-reported 2026-07).
+//
+// Override via INGEST_SINCE_REWIND_DAYS in .env — no rebuild needed,
+// just `docker compose restart worker` after changing the value.
+// Default 45 days is a balance between catching backdated tenders and
+// not re-fetching stale data unnecessarily.
+const SINCE_REWIND_MS =
+  (Number.parseInt(process.env.INGEST_SINCE_REWIND_DAYS ?? "", 10) || 45) *
+  24 *
+  60 *
+  60 *
+  1000;
+
+/**
+ * Compute the "since" cutoff for an incremental ingest.
+ *
+ * The previous implementation used the maximum `publishedAt` in the
+ * DB and passed that to adapters. That was buggy: adapters use it as
+ * a client-side filter (drop rows whose `publishedAt` predates it),
+ * and many portals list tenders with `publishedAt` values *earlier
+ * than the day they actually appeared* in the listing (backdated
+ * publication, staged rollouts, bulk imports). Those tenders would
+ * be permanently invisible to us — they'd only enter the DB by
+ * accident when a tenant reduced minFitScore or the portal bumped
+ * `publishedAt` forward. r2v confirmed the failure mode: a batch of
+ * month-old, near-deadline tenders arriving in a single digest.
+ *
+ * Now we anchor on `ingestedAt` (when we last saw this source at
+ * all) and rewind 30 days. Adapters treat the returned ISO string
+ * as a hint for their upstream "modified since" query parameter,
+ * not a hard client-side reject filter.
+ */
 async function computeSinceIso(source: TenderSourceId): Promise<string> {
   const latest = await prisma.tender.findFirst({
     where: { source },
-    orderBy: { publishedAt: "desc" },
-    select: { publishedAt: true },
+    orderBy: { ingestedAt: "desc" },
+    select: { ingestedAt: true },
   });
-  if (latest?.publishedAt) return latest.publishedAt.toISOString();
-  return new Date(Date.now() - FOURTEEN_DAYS_MS).toISOString();
+  const anchor = latest?.ingestedAt
+    ? latest.ingestedAt.getTime()
+    : Date.now() - FOURTEEN_DAYS_MS;
+  // Rewind so backdated / late-listed tenders still surface. Never
+  // return a future time (safety in case ingestedAt has clock skew).
+  const since = Math.min(anchor, Date.now()) - SINCE_REWIND_MS;
+  return new Date(since).toISOString();
 }
 
 function makeOnBatch(source: TenderSourceId): OnBatchFn {

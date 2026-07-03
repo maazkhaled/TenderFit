@@ -17,7 +17,7 @@
 import { NormalizedTenderSchema, type NormalizedTender } from "@beta/shared";
 import type { IngestAdapter } from "../types.ts";
 import { decodeEntities, stripTags } from "../util/html-scrape.ts";
-import { fetchRendered } from "../util/playwright-render.ts";
+import { fetchRendered, diagnoseEmptyParse } from "../util/playwright-render.ts";
 
 const LIST_URL = "https://bidplus.gem.gov.in/all-bids";
 
@@ -29,16 +29,15 @@ export const gemIndiaAdapter: IngestAdapter = {
     const sinceMs = new Date(sinceIso).getTime();
     let html: string;
     try {
-      // GeM's bidplus front-end is unusually slow — page.goto with
-      // domcontentloaded has timed out at both 45s and 60s. Push the
-      // navigation timeout to 90s. Once DOMContentLoaded fires the
-      // bid cards are present in the static HTML so we don't need
-      // to wait further.
+      // GeM's bidplus front-end is unusually slow — 90s timeout on
+      // page.goto still fails in production. Use "load" (fires after
+      // the top-level document + subresources finish) with a shorter
+      // budget, then a fixed post-load delay to let the React app
+      // hydrate its bid cards before we scrape.
       html = await fetchRendered(LIST_URL, {
-        waitUntil: "domcontentloaded",
-        waitForSelector:
-          "a[href*='bidlists'], a[href*='showbidDocument'], a[href*='showradardirectorate']",
-        timeoutMs: 90_000,
+        waitUntil: "load",
+        timeoutMs: 60_000,
+        postLoadDelayMs: 6_000,
       });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -47,6 +46,7 @@ export const gemIndiaAdapter: IngestAdapter = {
     }
 
     const items = parseGem(html);
+    if (items.length === 0) diagnoseEmptyParse("gem_india", html);
     const tenders: NormalizedTender[] = [];
     for (const item of items) {
       try {
